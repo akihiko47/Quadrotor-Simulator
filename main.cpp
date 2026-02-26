@@ -32,8 +32,10 @@ VkSurfaceKHR surface{VK_NULL_HANDLE};
 bool updateSwapchain{false};
 VkSwapchainKHR swapchain{VK_NULL_HANDLE};
 VkCommandPool commandPool{VK_NULL_HANDLE};
-VkPipeline pipeline{VK_NULL_HANDLE};
-VkPipelineLayout pipelineLayout{VK_NULL_HANDLE};
+VkPipeline opaquePipeline{VK_NULL_HANDLE};
+VkPipeline skyboxPipeline{VK_NULL_HANDLE};
+VkPipelineLayout opaquePipelineLayout{VK_NULL_HANDLE};
+VkPipelineLayout skyboxPipelineLayout{VK_NULL_HANDLE};
 VkImage depthImage;
 VmaAllocator allocator{VK_NULL_HANDLE};
 VmaAllocation depthImageAllocation;
@@ -52,6 +54,10 @@ struct ShaderData {
 	glm::mat4 view;
 	glm::mat4 model[3];
 	glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 0.0f};
+	glm::vec4 lightCol{1.0f, 1.0f, 1.0f, 1.0f};
+	glm::vec4 fogCol{1.0f, 1.0f, 1.0f, 1.0f};
+	glm::vec4 ambientCol{0.1f, 0.1f, 0.3f, 1.0f};
+	float fogDensity{0.1f};
 	uint32_t selected{1};
 } shaderData{};
 
@@ -123,9 +129,14 @@ int main(int argc, char* argv[]) {
 	};
 	uint32_t instanceExtensionsCount{0};
 	char const* const* instanceExtensions{SDL_Vulkan_GetInstanceExtensions(&instanceExtensionsCount)};
+	const std::vector<const char*> validationLayers = {
+		"VK_LAYER_KHRONOS_validation"
+	};
 	VkInstanceCreateInfo instanceCI{
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pApplicationInfo = &appInfo,
+		.enabledLayerCount = static_cast<uint32_t>(validationLayers.size()),
+		.ppEnabledLayerNames = validationLayers.data(),
 		.enabledExtensionCount = instanceExtensionsCount,
 		.ppEnabledExtensionNames = instanceExtensions,
 	};
@@ -590,23 +601,35 @@ int main(int argc, char* argv[]) {
 		.compilerOptionEntryCount{uint32_t(slangOptions.size())}
 	};
 
-	// Load shader
+	// Load shaders
 	Slang::ComPtr<slang::ISession> slangSession;
 	slangGlobalSession->createSession(slangSessionDesc, slangSession.writeRef());
-	Slang::ComPtr<slang::IModule> slangModule{
+	Slang::ComPtr<slang::IModule> opaqueSlangModule{
 		slangSession->loadModuleFromSource("triangle", "assets/shader.slang", nullptr, nullptr)
 	};
-	Slang::ComPtr<ISlangBlob> spirv;
-	slangModule->getTargetCode(0, spirv.writeRef());
-	VkShaderModuleCreateInfo shaderModuleCI{
-		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, 
-		.codeSize = spirv->getBufferSize(), 
-		.pCode = (uint32_t*)spirv->getBufferPointer()
+	Slang::ComPtr<slang::IModule> skyboxSlangModule{
+		slangSession->loadModuleFromSource("triangle", "assets/shader-skybox.slang", nullptr, nullptr)
 	};
-	VkShaderModule shaderModule{};
-	chk(vkCreateShaderModule(device, &shaderModuleCI, nullptr, &shaderModule));
+	Slang::ComPtr<ISlangBlob> opaqueSpirv;
+	Slang::ComPtr<ISlangBlob> skyboxSpirv;
+	opaqueSlangModule->getTargetCode(0, opaqueSpirv.writeRef());
+	skyboxSlangModule->getTargetCode(0, skyboxSpirv.writeRef());
+	VkShaderModuleCreateInfo opaqueShaderModuleCI{
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, 
+		.codeSize = opaqueSpirv->getBufferSize(),
+		.pCode = (uint32_t*)opaqueSpirv->getBufferPointer()
+	};
+	VkShaderModuleCreateInfo skyboxShaderModuleCI{
+		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+		.codeSize = skyboxSpirv->getBufferSize(),
+		.pCode = (uint32_t*)skyboxSpirv->getBufferPointer()
+	};
+	VkShaderModule opaqueShaderModule{};
+	VkShaderModule skyboxShaderModule{};
+	chk(vkCreateShaderModule(device, &opaqueShaderModuleCI, nullptr, &opaqueShaderModule));
+	chk(vkCreateShaderModule(device, &skyboxShaderModuleCI, nullptr, &skyboxShaderModule));
 
-	// Pipeline
+	// Opaque Pipeline
 	VkPushConstantRange pushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, 
 		.size = sizeof(VkDeviceAddress)
@@ -618,16 +641,16 @@ int main(int argc, char* argv[]) {
 		.pushConstantRangeCount = 1, 
 		.pPushConstantRanges = &pushConstantRange
 	};
-	chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
+	chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &opaquePipelineLayout));
 	std::vector<VkPipelineShaderStageCreateInfo> shaderStages{{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, 
 			.stage = VK_SHADER_STAGE_VERTEX_BIT, 
-			.module = shaderModule, 
+			.module = opaqueShaderModule,
 			.pName = "main"
 		},{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, 
 			.stage = VK_SHADER_STAGE_FRAGMENT_BIT, 
-			.module = shaderModule, 
+			.module = opaqueShaderModule, 
 			.pName = "main" 
 		}
 	};
@@ -706,9 +729,93 @@ int main(int argc, char* argv[]) {
 		.pDepthStencilState = &depthStencilState,
 		.pColorBlendState = &colorBlendState,
 		.pDynamicState = &dynamicState,
-		.layout = pipelineLayout
+		.layout = opaquePipelineLayout,
 	};
-	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline));
+	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &opaquePipeline));
+
+	// Skybox Pipeline
+	VkPushConstantRange skyboxPushConstantRange{
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+		.size = sizeof(VkDeviceAddress)
+	};
+	VkPipelineLayoutCreateInfo skyboxPipelineLayoutCI{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.pushConstantRangeCount = 1,
+		.pPushConstantRanges = &pushConstantRange
+	};
+	chk(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &skyboxPipelineLayout));
+	std::vector<VkPipelineShaderStageCreateInfo> skyboxShaderStages{{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_VERTEX_BIT,
+			.module = skyboxShaderModule,
+			.pName = "main"
+		},{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+			.module = skyboxShaderModule,
+			.pName = "main"
+		}
+	};
+	VkPipelineInputAssemblyStateCreateInfo skyboxInputAssemblyState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+	};
+	std::vector<VkDynamicState> skyboxDynamicStates{
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+	VkPipelineDynamicStateCreateInfo skyboxDynamicState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		.dynamicStateCount = 2,
+		.pDynamicStates = dynamicStates.data()
+	};
+	VkPipelineViewportStateCreateInfo skyboxViewportState{.
+		sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		.viewportCount = 1,
+		.scissorCount = 1
+	};
+	VkPipelineRasterizationStateCreateInfo skyboxRasterizationState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		.lineWidth = 1.0f
+	};
+	VkPipelineMultisampleStateCreateInfo skyboxMultisampleState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+	};
+	VkPipelineDepthStencilStateCreateInfo skyboxDepthStencilState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		.depthTestEnable = VK_TRUE,
+		.depthWriteEnable = VK_FALSE,
+		.depthCompareOp = VK_COMPARE_OP_EQUAL
+	};
+	VkPipelineColorBlendAttachmentState skyboxBlendAttachment{
+		.colorWriteMask = 0xF
+	};
+	VkPipelineColorBlendStateCreateInfo skyboxColorBlendState{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		.attachmentCount = 1, .pAttachments = &blendAttachment
+	};
+	VkPipelineRenderingCreateInfo skyboxRenderingCI{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+		.colorAttachmentCount = 1,
+		.pColorAttachmentFormats = &imageFormat,
+		.depthAttachmentFormat = depthFormat
+	};
+	VkGraphicsPipelineCreateInfo skyboxPipelineCI{
+		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+		.pNext = &renderingCI,
+		.stageCount = 2,
+		.pStages = shaderStages.data(),
+		.pInputAssemblyState = &inputAssemblyState,
+		.pViewportState = &viewportState,
+		.pRasterizationState = &rasterizationState,
+		.pMultisampleState = &multisampleState,
+		.pDepthStencilState = &depthStencilState,
+		.pColorBlendState = &colorBlendState,
+		.pDynamicState = &dynamicState,
+		.layout = skyboxPipelineLayout,
+	};
+	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &skyboxPipeline));
 
 	// Render loop
 	uint64_t lastTime{SDL_GetTicks()};
@@ -802,13 +909,15 @@ int main(int argc, char* argv[]) {
 			.extent{.width = static_cast<uint32_t>(windowSize.x), .height = static_cast<uint32_t>(windowSize.y) 
 		}};
 		vkCmdSetScissor(cb, 0, 1, &scissor);
-		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
+
+		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipeline);
+		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
 		VkDeviceSize vOffset{0};
 		vkCmdBindVertexBuffers(cb, 0, 1, &vBuffer, &vOffset);
 		vkCmdBindIndexBuffer(cb, vBuffer, vBufSize, VK_INDEX_TYPE_UINT16);
-		vkCmdPushConstants(cb, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
+		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
 		vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
+
 		vkCmdEndRendering(cb);
 		VkImageMemoryBarrier2 barrierPresent{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -937,12 +1046,15 @@ int main(int argc, char* argv[]) {
 	}
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-	vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-	vkDestroyPipeline(device, pipeline, nullptr);
+	vkDestroyPipelineLayout(device, opaquePipelineLayout, nullptr);
+	vkDestroyPipelineLayout(device, skyboxPipelineLayout, nullptr);
+	vkDestroyPipeline(device, opaquePipeline, nullptr);
+	vkDestroyPipeline(device, skyboxPipeline, nullptr);
 	vkDestroySwapchainKHR(device, swapchain, nullptr);
 	vkDestroySurfaceKHR(instance, surface, nullptr);
 	vkDestroyCommandPool(device, commandPool, nullptr);
-	vkDestroyShaderModule(device, shaderModule, nullptr);
+	vkDestroyShaderModule(device, opaqueShaderModule, nullptr);
+	vkDestroyShaderModule(device, skyboxShaderModule, nullptr);
 	vmaDestroyAllocator(allocator);
 	SDL_DestroyWindow(window);
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);

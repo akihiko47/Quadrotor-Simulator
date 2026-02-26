@@ -69,3 +69,7 @@ target_link_libraries(${NAME} PRIVATE ${SDL_LIBRARY} ktx ${Slang_LIBRARY})
 if (NOT WIN32)
     target_link_libraries(${NAME} PRIVATE glm::glm-header-only)
 endif()
+
+set_target_properties(${NAME} PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
