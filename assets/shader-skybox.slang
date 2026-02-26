@@ -4,7 +4,7 @@ struct ShaderData {
     float4x4 model[3];
     float4x4 invP;
     float4x4 invV;
-    float4 lightPos;
+    float4 lightDir;
     float4 lightCol;
     float4 fogCol;
     float4 ambientCol;
@@ -19,8 +19,7 @@ struct VSOutput {
     float2 uv;
     float3 rayDir;
     float3 camPos;
-    float3 lightVec;
-    float3 viewVec;
+    float3 lightDir;
     float3 fogCol;
     float3 ambientCol;
     float time;
@@ -35,8 +34,7 @@ VSOutput main(uint vertexId: SV_VertexID, uniform ShaderData *shaderData) {
     output.uv.y = 1.0 - output.uv.y;
 
     output.invPV = mul(shaderData.invV, shaderData.invP);
-    output.lightVec = shaderData.lightPos.xyz;
-    output.viewVec = float3(0, 0, 0);
+    output.lightDir = shaderData.lightDir.xyz;
     output.fogCol = shaderData.fogCol.rgb;
     output.ambientCol = shaderData.ambientCol.rgb;
     output.time = shaderData.time;
@@ -56,8 +54,8 @@ float4 main(VSOutput input) : SV_TARGET {
     float3 ro = input.camPos;
 
     // Skybox
-    float skyMask = smoothstep(0.0, 0.3, rayDir.y);
-    float groundMask = smoothstep(0.0, 0.1, -rayDir.y);
+    float skyMask = smoothstep(0.0, 0.3, rd.y);
+    float groundMask = smoothstep(0.0, 0.1, -rd.y);
     float horizonMask = 1.0 - (skyMask + groundMask);
 
     float3 skyboxColor = skyMask * float3(0.3, 0.5, 1.0) + groundMask * float3(0.25, 0.28, 0.32) + horizonMask * float3(0.7, 0.85, 1.0);

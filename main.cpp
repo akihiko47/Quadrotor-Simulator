@@ -48,6 +48,8 @@ std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
 VmaAllocation vBufferAllocation{VK_NULL_HANDLE};
 VkBuffer vBuffer{VK_NULL_HANDLE};
+VmaAllocation vGroundBufferAllocation{VK_NULL_HANDLE};
+VkBuffer vGroundBuffer{VK_NULL_HANDLE};
 
 struct ShaderData {
 	glm::mat4 projection;
@@ -55,10 +57,10 @@ struct ShaderData {
 	glm::mat4 model[3];
 	glm::mat4 invP;
 	glm::mat4 invV;
-	glm::vec4 lightPos{0.0f, -10.0f, 10.0f, 0.0f};
+	glm::vec4 lightDir{-1.0f, 1.0f, -1.0f, 0.0f};
 	glm::vec4 lightCol{1.0f, 1.0f, 1.0f, 1.0f};
 	glm::vec4 fogCol{1.0f, 1.0f, 1.0f, 1.0f};
-	glm::vec4 ambientCol{0.1f, 0.1f, 0.3f, 1.0f};
+	glm::vec4 ambientCol{0.05f, 0.05f, 0.2f, 1.0f};
 	float fogDensity{0.1f};
 	float time{0};
 	uint32_t selected{1};
@@ -346,6 +348,34 @@ int main(int argc, char* argv[]) {
 	memcpy(bufferPtr, vertices.data(), vBufSize);
 	memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
 	vmaUnmapMemory(allocator, vBufferAllocation);
+
+	// Ground buffer
+	std::vector<Vertex> groundVertices{
+		{{-50.0f, 0.0f, -50.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}}, // top-left
+		{{ 50.0f, 0.0f, -50.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}}, // top-right
+		{{ 50.0f, 0.0f,  50.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}}, // bottom-right
+		{{-50.0f, 0.0f,  50.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}}  // bottom-left
+	};
+	std::vector<uint16_t> groundIndices{0, 1, 2, 0, 2, 3};
+
+	VkDeviceSize vGroundBufSize{sizeof(Vertex) * groundVertices.size()};
+	VkDeviceSize iGroundBufSize{sizeof(uint16_t) * groundIndices.size()};
+	VkBufferCreateInfo GroundBufferCI{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = vGroundBufSize + iGroundBufSize,
+		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+	};
+	VmaAllocationCreateInfo GroundBufferAllocCI{
+		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+		.usage = VMA_MEMORY_USAGE_AUTO
+	};
+	chk(vmaCreateBuffer(allocator, &GroundBufferCI, &GroundBufferAllocCI, &vGroundBuffer, &vGroundBufferAllocation, nullptr));
+	void* groundBufferPtr{nullptr};
+	chk(vmaMapMemory(allocator, vGroundBufferAllocation, &groundBufferPtr));
+	memcpy(groundBufferPtr, groundVertices.data(), vGroundBufSize);
+	memcpy(((char*)groundBufferPtr) + vGroundBufSize, groundIndices.data(), iGroundBufSize);
+	vmaUnmapMemory(allocator, vGroundBufferAllocation);
+
 
 	// Shader data buffers
 	for (auto i = 0; i < maxFramesInFlight; i++) {
@@ -938,6 +968,11 @@ int main(int argc, char* argv[]) {
 		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
 		vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
 
+		// Ground
+		vkCmdBindVertexBuffers(cb, 0, 1, &vGroundBuffer, &vOffset);
+		vkCmdBindIndexBuffer(cb, vGroundBuffer, vGroundBufSize, VK_INDEX_TYPE_UINT16);
+		vkCmdDrawIndexed(cb, groundIndices.size(), 1, 0, 0, 3);
+
 		// Skybox
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
 		vkCmdPushConstants(cb, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
@@ -1070,6 +1105,7 @@ int main(int argc, char* argv[]) {
 		vkDestroySampler(device, textures[i].sampler, nullptr);
 		vmaDestroyImage(allocator, textures[i].image, textures[i].allocation);
 	}
+	vmaDestroyBuffer(allocator, vGroundBuffer, vGroundBufferAllocation);
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 	vkDestroyPipelineLayout(device, opaquePipelineLayout, nullptr);
