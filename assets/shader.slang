@@ -10,6 +10,8 @@ struct ShaderData {
     float4x4 projection;
     float4x4 view;
     float4x4 model[3];
+    float4x4 invP;
+    float4x4 invV;
     float4 lightPos;
     float4 lightCol;
     float4 fogCol;
