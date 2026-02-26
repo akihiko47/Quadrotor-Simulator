@@ -1,9 +1,3 @@
-/* Copyright (c) 2025-2026, Sascha Willems
- *
- * SPDX-License-Identifier: MIT
- *
- */
-
 struct VSInput {
     float3 Pos;
     float3 Normal;
@@ -21,6 +15,7 @@ struct ShaderData {
     float4 fogCol;
     float4 ambientCol;
     float fogDensity;
+    float time;
     uint32_t selected;
 };
 
@@ -45,7 +40,7 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData, uint instanceIndex 
     output.Pos = mul(shaderData->projection, mul(shaderData->view, mul(modelMat, float4(input.Pos.xyz, 1.0))));
     output.Factor = (shaderData->selected == instanceIndex ? 3.0f : 1.0f);
     output.InstanceIndex = instanceIndex;
-    
+
     // Calculate view vectors required for lighting
     float4 fragPos = mul(mul(shaderData->view, modelMat), float4(input.Pos.xyz, 1.0));
     output.LightVec = shaderData->lightPos.xyz - fragPos.xyz;
