@@ -12,6 +12,7 @@ struct ShaderData {
     float4x4 model[3];
     float4x4 invP;
     float4x4 invV;
+    float4 camPos;
     float4 lightDir;
     float4 lightCol;
     float4 fogCol;
@@ -57,8 +58,8 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData, uint instanceIndex 
     output.instanceIndex = instanceIndex;
 
     // Light
-    output.lightDir = shaderData.lightDir.xyz;
-    output.camPos = float3(shaderData.invV._m03, -shaderData.invV._m13, shaderData.invV._m23);
+    output.camPos = shaderData.camPos.xyz;
+    output.lightDir = normalize(shaderData.lightDir.xyz);
     output.lightCol = shaderData.lightCol.rgb;
 
     // Fog
@@ -83,7 +84,17 @@ float4 main(VSOutput i) {
     // Sample from texture
     float3 color = float3(0);
     if (i.instanceIndex == groundInstanceIndex) {
-        color += float3(0.8, 0.0, 0.0);
+        float cellSize = 1.0;
+        float3 color1 = float3(0.4, 0.4, 0.4);
+        float3 color2 = float3(0.75, 0.75, 0.75);
+
+        float cellX = floor(i.worldPos.x / cellSize);
+        float cellZ = floor(i.worldPos.z / cellSize);
+
+        float parity = frac((cellX + cellZ) * 0.5) * 2.0;
+        parity = floor(parity + 0.1);
+
+        color += lerp(color1, color2, parity);
     } else {
         color += saturate(textures[NonUniformResourceIndex(i.instanceIndex)].Sample(i.uv).rgb * i.factor);
     }
@@ -91,10 +102,17 @@ float4 main(VSOutput i) {
     // Phong
     color = diffuse * color.rgb + specular * i.lightCol;
 
-    // Fog
-
     // Ambient
     color += i.ambientCol;
+
+    // Fog
+    float fogAmount = 1.0 - exp(-length(i.camPos - i.worldPos) * 0.04);
+    float sunAmount = max(dot(-V, L), 0.0);
+    float3 fogColor = lerp(i.fogCol,  // blue
+                           float3(1.0, 0.9, 0.7),  // yellow
+                           pow(sunAmount, 8.0));
+    color = lerp(color, fogColor, fogAmount);
+
 
     return float4(color, 1.0);
 }

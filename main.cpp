@@ -57,10 +57,11 @@ struct ShaderData {
 	glm::mat4 model[3];
 	glm::mat4 invP;
 	glm::mat4 invV;
-	glm::vec4 lightDir{-1.0f, 1.0f, -1.0f, 0.0f};
-	glm::vec4 lightCol{1.0f, 1.0f, 1.0f, 1.0f};
-	glm::vec4 fogCol{1.0f, 1.0f, 1.0f, 1.0f};
-	glm::vec4 ambientCol{0.05f, 0.05f, 0.2f, 1.0f};
+	glm::vec4 camPos;
+	glm::vec4 lightDir{1.0f, -0.5f, -1.0f, 0.0f};
+	glm::vec4 lightCol{1.0f, 0.98f, 0.9f, 1.0f};
+	glm::vec4 fogCol{0.7f, 0.85f, 1.0f, 1.0f};
+	glm::vec4 ambientCol{0.05f, 0.05f, 0.1f, 1.0f};
 	float fogDensity{0.1f};
 	float time{0};
 	uint32_t selected{1};
@@ -86,7 +87,7 @@ VkDescriptorPool descriptorPool{VK_NULL_HANDLE};
 VkDescriptorSetLayout descriptorSetLayoutTex{VK_NULL_HANDLE};
 VkDescriptorSet descriptorSetTex{VK_NULL_HANDLE};
 Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
-glm::vec3 camPos{0.0f, 1.0f, -6.0f};
+glm::vec3 camPos{0.0f, 1.0f, 6.0f};
 glm::vec3 objectRotations[3]{};
 glm::ivec2 windowSize{};
 struct Vertex {
@@ -324,8 +325,8 @@ int main(int argc, char* argv[]) {
 	// Load vertex and index data
 	for (auto& index : shapes[0].mesh.indices) {
 		Vertex v{
-			.pos = { attrib.vertices[index.vertex_index * 3], -attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] },
-			.normal = { attrib.normals[index.normal_index * 3], -attrib.normals[index.normal_index * 3 + 1], attrib.normals[index.normal_index * 3 + 2] },
+			.pos = { attrib.vertices[index.vertex_index * 3], attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] },
+			.normal = { attrib.normals[index.normal_index * 3], attrib.normals[index.normal_index * 3 + 1], attrib.normals[index.normal_index * 3 + 2] },
 			.uv = { attrib.texcoords[index.texcoord_index * 2], 1.0 - attrib.texcoords[index.texcoord_index * 2 + 1] }
 		};
 		vertices.push_back(v);
@@ -351,10 +352,10 @@ int main(int argc, char* argv[]) {
 
 	// Ground buffer
 	std::vector<Vertex> groundVertices{
-		{{-50.0f, 0.0f, -50.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f}}, // top-left
-		{{ 50.0f, 0.0f, -50.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 0.0f}}, // top-right
-		{{ 50.0f, 0.0f,  50.0f}, {0.0f, -1.0f, 0.0f}, {1.0f, 1.0f}}, // bottom-right
-		{{-50.0f, 0.0f,  50.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, 1.0f}}  // bottom-left
+		{{-150.0f, 0.0f, -150.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}}, // top-left
+		{{ 150.0f, 0.0f, -150.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}}, // top-right
+		{{ 150.0f, 0.0f,  150.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}, // bottom-right
+		{{-150.0f, 0.0f,  150.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}}  // bottom-left
 	};
 	std::vector<uint16_t> groundIndices{0, 1, 2, 0, 2, 3};
 
@@ -874,10 +875,12 @@ int main(int argc, char* argv[]) {
 		chkSwapchain(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex));
 
 		// Update shader data
-		shaderData.projection = glm::perspective(glm::radians(70.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 124.0f);
-		shaderData.view = glm::rotate(glm::lookAt(glm::vec3(0.0f, -1.0f, 8.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)), 1.0f * glm::sin(shaderData.time), glm::vec3(0, 1, 0));
+		shaderData.projection = glm::perspective(glm::radians(70.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
+		shaderData.projection[1][1] *= -1;
+		shaderData.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		shaderData.invP = glm::inverse(shaderData.projection);
 		shaderData.invV = glm::inverse(shaderData.view);
+		shaderData.camPos = glm::vec4(camPos, 1.0f);
 		for (auto i = 0; i < 3; i++) {
 			auto instancePos = glm::vec3((float)(i - 1) * 3.0f, 0.0f, 0.0f);
 			shaderData.model[i] = glm::translate(glm::mat4(1.0f), instancePos) * glm::mat4_cast(glm::quat(objectRotations[i]));
@@ -1038,7 +1041,7 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			if (event.type == SDL_EVENT_MOUSE_WHEEL) {
-				camPos.z += (float)event.wheel.y * elapsedTime * 10.0f;
+				camPos.z += (float)event.wheel.y * elapsedTime * 100.0f;
 			}
 			if (event.type == SDL_EVENT_KEY_DOWN) {
 				if (event.key.key == SDLK_PLUS || event.key.key == SDLK_KP_PLUS) {
