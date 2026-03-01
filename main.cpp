@@ -30,16 +30,20 @@ VkDevice device{VK_NULL_HANDLE};
 VkQueue queue{VK_NULL_HANDLE};
 VkSurfaceKHR surface{VK_NULL_HANDLE};
 bool updateSwapchain{false};
+bool isFullscreen{false};
 VkSwapchainKHR swapchain{VK_NULL_HANDLE};
 VkCommandPool commandPool{VK_NULL_HANDLE};
 VkPipeline opaquePipeline{VK_NULL_HANDLE};
 VkPipeline skyboxPipeline{VK_NULL_HANDLE};
 VkPipelineLayout opaquePipelineLayout{VK_NULL_HANDLE};
 VkPipelineLayout skyboxPipelineLayout{VK_NULL_HANDLE};
-VkImage depthImage;
 VmaAllocator allocator{VK_NULL_HANDLE};
+VkImage depthImage;
 VmaAllocation depthImageAllocation;
 VkImageView depthImageView;
+VkImage colorImage;
+VmaAllocation colorImageAllocation;
+VkImageView colorImageView;
 std::vector<VkImage> swapchainImages;
 std::vector<VkImageView> swapchainImageViews;
 std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
@@ -136,7 +140,8 @@ int main(int argc, char* argv[]) {
 	uint32_t instanceExtensionsCount{0};
 	char const* const* instanceExtensions{SDL_Vulkan_GetInstanceExtensions(&instanceExtensionsCount)};
 	const std::vector<const char*> validationLayers = {
-		"VK_LAYER_KHRONOS_validation"
+		"VK_LAYER_KHRONOS_validation",
+		"VK_LAYER_LUNARG_monitor",
 	};
 	VkInstanceCreateInfo instanceCI{
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -187,8 +192,14 @@ int main(int argc, char* argv[]) {
 		.queueCount = 1, 
 		.pQueuePriorities = &qfpriorities
 	};
+	VkPhysicalDeviceVulkan11Features enabledVk11Features{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+		.shaderDrawParameters = true,
+	};
+
 	VkPhysicalDeviceVulkan12Features enabledVk12Features{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, 
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+		.pNext = &enabledVk11Features,
 		.descriptorIndexing = true, 
 		.shaderSampledImageArrayNonUniformIndexing = true, 
 		.descriptorBindingVariableDescriptorCount = true, 
@@ -251,7 +262,7 @@ int main(int argc, char* argv[]) {
 		.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR,
 		.imageExtent{.width = surfaceCaps.currentExtent.width, .height = surfaceCaps.currentExtent.height },
 		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR
@@ -272,6 +283,16 @@ int main(int argc, char* argv[]) {
 		};
 		chk(vkCreateImageView(device, &viewCI, nullptr, &swapchainImageViews[i]));
 	}
+
+	// Get number of samples
+	VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
+	VkPhysicalDeviceProperties physicalDeviceProperties;
+	vkGetPhysicalDeviceProperties(devices[deviceIndex], &physicalDeviceProperties);
+
+	VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+	if (counts & VK_SAMPLE_COUNT_64_BIT) { sampleCount = VK_SAMPLE_COUNT_64_BIT; } else if (counts & VK_SAMPLE_COUNT_32_BIT) { sampleCount = VK_SAMPLE_COUNT_32_BIT; } else if (counts & VK_SAMPLE_COUNT_16_BIT) { sampleCount = VK_SAMPLE_COUNT_16_BIT; } else if (counts & VK_SAMPLE_COUNT_8_BIT) { sampleCount = VK_SAMPLE_COUNT_8_BIT; } else if (counts & VK_SAMPLE_COUNT_4_BIT) { sampleCount = VK_SAMPLE_COUNT_4_BIT; } else if (counts & VK_SAMPLE_COUNT_2_BIT) { sampleCount = VK_SAMPLE_COUNT_2_BIT; }
+
+	std::cout << "Samples count: " << sampleCount << "\n";
 
 	// Depth attachment
 	std::vector<VkFormat> depthFormatList{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
@@ -294,7 +315,7 @@ int main(int argc, char* argv[]) {
 		.extent{.width = static_cast<uint32_t>(windowSize.x), .height = static_cast<uint32_t>(windowSize.y), .depth = 1},
 		.mipLevels = 1,
 		.arrayLayers = 1,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.samples = sampleCount,
 		.tiling = VK_IMAGE_TILING_OPTIMAL,
 		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -312,6 +333,33 @@ int main(int argc, char* argv[]) {
 		.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
 	};
 	chk(vkCreateImageView(device, &depthViewCI, nullptr, &depthImageView));
+
+	// Main color image
+	VkImageCreateInfo colorImageCI{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = imageFormat,
+		.extent{.width = static_cast<uint32_t>(windowSize.x), .height = static_cast<uint32_t>(windowSize.y), .depth = 1},
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = sampleCount,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+	VmaAllocationCreateInfo colorAllocCI{
+		.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+		.usage = VMA_MEMORY_USAGE_AUTO
+	};
+	chk(vmaCreateImage(allocator, &colorImageCI, &colorAllocCI, &colorImage, &colorImageAllocation, nullptr));
+	VkImageViewCreateInfo colorViewCI{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = colorImage,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = imageFormat,
+		.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+	};
+	chk(vkCreateImageView(device, &colorViewCI, nullptr, &colorImageView));
 
 	// Mesh data
 	tinyobj::attrib_t attrib;
@@ -546,6 +594,7 @@ int main(int argc, char* argv[]) {
 		vkDestroyFence(device, fenceOneTime, nullptr);
 		vmaUnmapMemory(allocator, imgSrcAllocation);
 		vmaDestroyBuffer(allocator, imgSrcBuffer, imgSrcAllocation);
+
 		// Sampler
 		VkSamplerCreateInfo samplerCI{
 			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -731,7 +780,7 @@ int main(int argc, char* argv[]) {
 	};
 	VkPipelineMultisampleStateCreateInfo multisampleState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, 
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+		.rasterizationSamples = sampleCount
 	};
 	VkPipelineDepthStencilStateCreateInfo depthStencilState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO, 
@@ -827,7 +876,7 @@ int main(int argc, char* argv[]) {
 	};
 	VkPipelineMultisampleStateCreateInfo skyboxMultisampleState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT
+		.rasterizationSamples = sampleCount
 	};
 	VkPipelineDepthStencilStateCreateInfo skyboxDepthStencilState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -895,19 +944,32 @@ int main(int argc, char* argv[]) {
 			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
 		};
 		chk(vkBeginCommandBuffer(cb, &cbBI));
-		std::array<VkImageMemoryBarrier2, 2> outputBarriers{
-			VkImageMemoryBarrier2{
+
+		// Change image layouts
+		std::array<VkImageMemoryBarrier2, 3> outputBarriers{
+			VkImageMemoryBarrier2{  // color attachment for rendering
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 				.srcAccessMask = 0,
 				.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 				.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 				.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+				.image = colorImage,
+				.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+			},
+			VkImageMemoryBarrier2{  // swapchain image for transfer destination
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				.srcAccessMask = 0,
+				.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+				.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				.image = swapchainImages[imageIndex],
 				.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 			},
-			VkImageMemoryBarrier2{
+			VkImageMemoryBarrier2{  // depth attachment for rendering
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 				.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
 				.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
@@ -921,13 +983,14 @@ int main(int argc, char* argv[]) {
 		};
 		VkDependencyInfo barrierDependencyInfo{
 			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, 
-			.imageMemoryBarrierCount = 2, 
+			.imageMemoryBarrierCount = 3, 
 			.pImageMemoryBarriers = outputBarriers.data()
 		};
 		vkCmdPipelineBarrier2(cb, &barrierDependencyInfo);
+
 		VkRenderingAttachmentInfo colorAttachmentInfo{
 			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-			.imageView = swapchainImageViews[imageIndex],
+			.imageView = colorImageView,
 			.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
 			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -982,23 +1045,63 @@ int main(int argc, char* argv[]) {
 		vkCmdDraw(cb, 3, 1, 0, 0);
 
 		vkCmdEndRendering(cb);
-		VkImageMemoryBarrier2 barrierPresent{
+
+		// Resolve
+		VkImageMemoryBarrier2 barrierResolve{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
 			.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			.dstAccessMask = 0,
+			.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+			.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
 			.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-			.image = swapchainImages[imageIndex],
+			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			.image = colorImage,
 			.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 		};
-		VkDependencyInfo barrierPresentDependencyInfo{
+		VkDependencyInfo barrierResolveDependencyInfo{
 			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, 
 			.imageMemoryBarrierCount = 1, 
+			.pImageMemoryBarriers = &barrierResolve
+		};
+		vkCmdPipelineBarrier2(cb, &barrierResolveDependencyInfo);
+
+		VkImageResolve resolveRegion{
+			.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+			.dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+			.extent = {
+				.width = static_cast<uint32_t>(windowSize.x),   
+				.height = static_cast<uint32_t>(windowSize.y),
+				.depth = 1
+			}
+		};
+		vkCmdResolveImage(
+			cb, 
+			colorImage, 
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			swapchainImages[imageIndex], 
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, 
+			&resolveRegion
+		);
+
+		VkImageMemoryBarrier2 barrierPresent{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+			.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			.dstAccessMask = 0,
+			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+			.image = swapchainImages[imageIndex],
+			.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}
+		};
+		VkDependencyInfo barrierPresentDependencyInfo{
+			.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+			.imageMemoryBarrierCount = 1,
 			.pImageMemoryBarriers = &barrierPresent
 		};
 		vkCmdPipelineBarrier2(cb, &barrierPresentDependencyInfo);
+
 		chk(vkEndCommandBuffer(cb));
 
 		// Submit to graphics queue
@@ -1051,6 +1154,13 @@ int main(int argc, char* argv[]) {
 					shaderData.selected = (shaderData.selected > 0) ? shaderData.selected - 1 : 2;
 				}
 			}
+			// Fullscreen
+			if (event.type == SDL_EVENT_KEY_DOWN) {
+				if (event.key.key == SDLK_F11) {
+					isFullscreen = !isFullscreen;
+					SDL_SetWindowFullscreen(window, isFullscreen);
+				}
+			}
 			// Window resize
 			if (event.type == SDL_EVENT_WINDOW_RESIZED) {
 				updateSwapchain = true;
@@ -1072,17 +1182,54 @@ int main(int argc, char* argv[]) {
 			chk(vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data()));
 			swapchainImageViews.resize(imageCount);
 			for (auto i = 0; i < imageCount; i++) {
-				VkImageViewCreateInfo viewCI{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = swapchainImages[i], .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = imageFormat, .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}};
+				VkImageViewCreateInfo viewCI{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, 
+					.image = swapchainImages[i], 
+					.viewType = VK_IMAGE_VIEW_TYPE_2D, 
+					.format = imageFormat, 
+					.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1}
+				};
 				chk(vkCreateImageView(device, &viewCI, nullptr, &swapchainImageViews[i]));
 			}
 			vkDestroySwapchainKHR(device, swapchainCI.oldSwapchain, nullptr);
+
 			vmaDestroyImage(allocator, depthImage, depthImageAllocation);
 			vkDestroyImageView(device, depthImageView, nullptr);
-			depthImageCI.extent = {.width = static_cast<uint32_t>(windowSize.x), .height = static_cast<uint32_t>(windowSize.y), .depth = 1};
-			VmaAllocationCreateInfo allocCI{.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, .usage = VMA_MEMORY_USAGE_AUTO};
+			depthImageCI.extent = {
+				.width = static_cast<uint32_t>(windowSize.x), 
+				.height = static_cast<uint32_t>(windowSize.y), 
+				.depth = 1
+			};
+			VmaAllocationCreateInfo allocCI{
+				.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT, 
+				.usage = VMA_MEMORY_USAGE_AUTO
+			};
 			chk(vmaCreateImage(allocator, &depthImageCI, &allocCI, &depthImage, &depthImageAllocation, nullptr));
-			VkImageViewCreateInfo viewCI{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = depthImage, .viewType = VK_IMAGE_VIEW_TYPE_2D, .format = depthFormat, .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }};
+			VkImageViewCreateInfo viewCI{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, 
+				.image = depthImage, 
+				.viewType = VK_IMAGE_VIEW_TYPE_2D, 
+				.format = depthFormat, 
+				.subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT, .levelCount = 1, .layerCount = 1 }
+			};
 			chk(vkCreateImageView(device, &viewCI, nullptr, &depthImageView));
+
+			vmaDestroyImage(allocator, colorImage, colorImageAllocation);
+			vkDestroyImageView(device, colorImageView, nullptr);
+			colorImageCI.extent = {
+				.width = static_cast<uint32_t>(windowSize.x),
+				.height = static_cast<uint32_t>(windowSize.y),
+				.depth = 1
+			};
+			chk(vmaCreateImage(allocator, &colorImageCI, &allocCI, &colorImage, &colorImageAllocation, nullptr));
+			VkImageViewCreateInfo colorViewCI{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = colorImage,
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = imageFormat,
+				.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
+			};
+			chk(vkCreateImageView(device, &colorViewCI, nullptr, &colorImageView));
 		}
 	}
 
@@ -1099,6 +1246,8 @@ int main(int argc, char* argv[]) {
 	}
 	vmaDestroyImage(allocator, depthImage, depthImageAllocation);
 	vkDestroyImageView(device, depthImageView, nullptr);
+	vmaDestroyImage(allocator, colorImage, colorImageAllocation);
+	vkDestroyImageView(device, colorImageView, nullptr);
 	for (auto i = 0; i < swapchainImageViews.size(); i++) {
 		vkDestroyImageView(device, swapchainImageViews[i], nullptr);
 	}
