@@ -1,6 +1,6 @@
 #pragma once
 
-#include "dynamic_model.cpp"
+#include "dynamic_model.hpp"
 
 class TestModel : public DynamicModel {
 public:

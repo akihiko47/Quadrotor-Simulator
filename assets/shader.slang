@@ -6,6 +6,22 @@ struct VSInput {
 
 Sampler2D textures[];
 
+struct PushConstants {
+    ShaderData* shaderData;
+    uint modelMatrixIndex;
+    uint textureIndex;
+};
+
+struct Light {
+    float4 position;
+    float4 direction;
+    float4 color;
+    float4 attenuation; // x = constant, y = linear, z = quadratic, w = cutOff angle
+    uint4 settings;     // x - type, y - enabled, z,w - padding
+    // TYPE: 0 = directional, 1 = point, 2 = spot
+    // ENABLED: 0/1
+};
+
 struct ShaderData {
     float4x4 projection;
     float4x4 view;
@@ -13,76 +29,70 @@ struct ShaderData {
     float4x4 invP;
     float4x4 invV;
     float4 camPos;
-    float4 lightDir;
-    float4 lightCol;
-    float4 fogCol;
+    float4 fog;
     float4 ambientCol;
-    float fogDensity;
+    Light lights[16];
+    uint lightCount;
     float time;
-    uint32_t selected;
 };
-
 struct VSOutput {
     float4 pos : SV_POSITION;
+    ShaderData *shaderData;
     float3 normal;
     float2 uv;
-    float3 factor;
-    float3 lightDir;
-    float3 lightCol;
     float3 worldPos;
-    float3 camPos;
     uint32_t instanceIndex;
-    float3 fogCol;
-    float3 ambientCol;
 };
 
 const static int groundInstanceIndex = 3;
 
+float3 calculateDirectionalLight(Light light, float3 albedo, float3 normal, float3 viewDir) {
+    float3 L = normalize(-light.direction.xyz);
+    float diffuse = max(dot(normal, L), 0.0);
+    float3 H = normalize(L + viewDir);
+    float specular = pow(max(dot(normal, H), 0.0), 128.0);
+
+    return diffuse * albedo * light.color.rgb + specular * light.color.rgb;
+}
+
 [shader("vertex")]
-VSOutput main(VSInput input, uniform ShaderData *shaderData, uint instanceIndex : SV_VulkanInstanceID) {
+VSOutput main(VSInput input, uniform PushConstants pushConstants, uint instanceIndex: SV_VulkanInstanceID) {
+    ShaderData shaderData = *pushConstants.shaderData;
     VSOutput output;
+    output.shaderData = pushConstants.shaderData;
+
     if (instanceIndex == groundInstanceIndex) {
         output.normal = input.Normal;
         output.worldPos = input.Pos.xyz;
-        output.pos = mul(shaderData->projection, mul(shaderData->view, float4(output.worldPos, 1.0)));
-        output.factor = 1.0f;
+        output.pos = mul(shaderData.projection, mul(shaderData.view, float4(output.worldPos, 1.0)));
         output.instanceIndex = instanceIndex;
     } else {
-        float4x4 modelMat = shaderData->model[instanceIndex];
+        float4x4 modelMat = shaderData.model[instanceIndex];
         output.normal = mul((float3x3)modelMat, input.Normal);
         output.worldPos = mul(modelMat, float4(input.Pos.xyz, 1.0)).xyz;
-        output.pos = mul(shaderData->projection, mul(shaderData->view, float4(output.worldPos, 1.0)));
-        output.factor = (shaderData->selected == instanceIndex ? 3.0f : 1.0f);
+        output.pos = mul(shaderData.projection, mul(shaderData.view, float4(output.worldPos, 1.0)));
     }
+
     output.uv = input.UV;
     output.instanceIndex = instanceIndex;
-
-    // Light
-    output.camPos = shaderData.camPos.xyz;
-    output.lightDir = normalize(shaderData.lightDir.xyz);
-    output.lightCol = shaderData.lightCol.rgb;
-
-    // Fog
-    output.fogCol = shaderData.fogCol.rgb;
-
-    // Ambient
-    output.ambientCol = shaderData.ambientCol.rgb;
 
     return output;
 }
 
 [shader("fragment")]
 float4 main(VSOutput i) {
+    ShaderData sd = *i.shaderData;
+
     // Phong lighting
     float3 N = normalize(i.normal);
-    float3 L = normalize(-i.lightDir);
-    float3 V = normalize(i.camPos - i.worldPos);
+    float3 L = normalize(-sd.lights[0].direction.xyz);
+    float3 V = normalize(sd.camPos.xyz - i.worldPos);
     float3 R = reflect(-L, N);
     float3 diffuse = max(dot(N, L), 0.0025);
     float3 specular = pow(max(dot(R, V), 0.0), 16.0) * 0.75;
 
     // Sample from texture
-    float3 color = float3(0);
+    float3 albedo = float3(0);
     if (i.instanceIndex == groundInstanceIndex) {
         float cellSize = 1.0;
         float3 color1 = float3(0.4, 0.4, 0.4);
@@ -94,25 +104,44 @@ float4 main(VSOutput i) {
         float parity = frac((cellX + cellZ) * 0.5) * 2.0;
         parity = floor(parity + 0.1);
 
-        color += lerp(color1, color2, parity);
+        albedo += lerp(color1, color2, parity);
     } else {
-        color += saturate(textures[NonUniformResourceIndex(i.instanceIndex)].Sample(i.uv).rgb * i.factor);
+        albedo += textures[NonUniformResourceIndex(i.instanceIndex)].Sample(i.uv).rgb;
     }
 
-    // Phong
-    color = diffuse * color.rgb + specular * i.lightCol;
+    // Lights
+    float3 color = float3(0);
+    for (uint i = 0; i < sd.lightCount; i++) {
+        if (sd.lights[i].settings.y == 0) continue;  // if not enabled
+
+        // if (i != 2) continue;
+
+        Light light = sd.lights[i];
+        float3 contribution = 0;
+
+        if (light.settings.x == 0) { // Directional
+            contribution = calculateDirectionalLight(light, albedo, N, V);
+        }
+        else if (light.settings.y == 1) { // Point
+            // contribution = calculatePointLight(light, fragPos, N, V);
+        }
+        else if (light.settings.y == 2) { // Spot
+            // contribution = calculateSpotLight(light, fragPos, N, V);
+        }
+
+        color += contribution;
+    }
 
     // Ambient
-    color += i.ambientCol;
+    color += sd.ambientCol.rgb;
 
     // Fog
-    float fogAmount = 1.0 - exp(-length(i.camPos - i.worldPos) * 0.04);
+    float fogAmount = 1.0 - exp(-length(sd.camPos.xyz - i.worldPos) * 0.04);
     float sunAmount = max(dot(-V, L), 0.0);
-    float3 fogColor = lerp(i.fogCol,  // blue
+    float3 fogColor = lerp(sd.fog.rgb,  // blue
                            float3(1.0, 0.9, 0.7),  // yellow
                            pow(sunAmount, 8.0));
     color = lerp(color, fogColor, fogAmount);
-
 
     return float4(color, 1.0);
 }

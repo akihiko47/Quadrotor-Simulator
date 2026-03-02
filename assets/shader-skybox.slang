@@ -1,3 +1,19 @@
+struct PushConstants {
+    ShaderData* shaderData;
+    uint modelMatrixIndex;
+    uint textureIndex;
+};
+
+struct Light {
+    float4 position;
+    float4 direction;
+    float4 color;
+    float4 attenuation; // x = constant, y = linear, z = quadratic, w = cutOff angle
+    uint4 settings;     // x - type, y - enabled, z,w - padding
+    // TYPE: 0 = directional, 1 = point, 2 = spot
+    // ENABLED: 0/1
+};
+
 struct ShaderData {
     float4x4 projection;
     float4x4 view;
@@ -5,26 +21,19 @@ struct ShaderData {
     float4x4 invP;
     float4x4 invV;
     float4 camPos;
-    float4 lightDir;
-    float4 lightCol;
-    float4 fogCol;
+    float4 fog;
     float4 ambientCol;
-    float fogDensity;
+    Light lights[16];
+    uint lightCount;
     float time;
-    uint32_t selected;
 };
 
 struct VSOutput {
     float4 pos : SV_POSITION;
+    ShaderData* shaderData;
     float4x4 invPV;
     float2 uv;
     float3 rayDir;
-    float3 camPos;
-    float3 lightDir;
-    float3 lightCol;
-    float3 fogCol;
-    float3 ambientCol;
-    float time;
 };
 
 float3 computeRayDir(float2 uv, float4x4 invPV) {
@@ -37,33 +46,30 @@ float3 computeRayDir(float2 uv, float4x4 invPV) {
 }
 
 [shader("vertex")]
-VSOutput main(uint vertexId: SV_VertexID, uniform ShaderData *shaderData) {
+VSOutput main(uint vertexId: SV_VertexID, uniform PushConstants pushConstants) {
+    ShaderData shaderData = *pushConstants.shaderData;
     VSOutput output;
 
+    output.shaderData = pushConstants.shaderData;
     output.uv = float2((vertexId << 1) & 2, vertexId & 2);
     output.pos = float4(output.uv * 2.0 - 1.0, 1.0, 1.0);
-
     output.invPV = mul(shaderData.invV, shaderData.invP);
-    output.lightDir = normalize(shaderData.lightDir.xyz);
-    output.lightCol = shaderData.lightCol.rgb;
-    output.fogCol = shaderData.fogCol.rgb;
-    output.ambientCol = shaderData.ambientCol.rgb;
-    output.time = shaderData.time;
-    output.camPos = shaderData.camPos.xyz;
 
     return output;
 }
 
 [shader("fragment")]
 float4 main(VSOutput i) : SV_TARGET {
-    float3 L = normalize(-i.lightDir);
+    ShaderData sd = *i.shaderData;
+
+    float3 L = normalize(-sd.lights[0].direction.xyz);
     float3 rd = computeRayDir(i.uv, i.invPV);
 
-    float3 ro = i.camPos;
+    float3 ro = sd.camPos.xyz;
 
     // Fog
     float sunAmount = max(dot(rd, L), 0.0);
-    float3 fogColor = lerp(i.fogCol,
+    float3 fogColor = lerp(sd.fog.rgb,
                            float3(1.0, 0.9, 0.7), // yellow
                            pow(sunAmount, 8.0));
 
@@ -71,10 +77,10 @@ float4 main(VSOutput i) : SV_TARGET {
     float skyMask = smoothstep(0.0, 0.5, rd.y);
     float groundMask = smoothstep(0.0, 0.3, -rd.y);
     float horizonMask = 1.0 - (skyMask + groundMask);
-    float sunMask = smoothstep(0.9995, 0.9996, saturate(dot(rd, -i.lightDir)));
+    float sunMask = smoothstep(0.9995, 0.9996, saturate(dot(rd, L)));
 
     float3 skyboxColor = skyMask * float3(0.53, 0.81, 0.92) + groundMask * float3(0.25, 0.28, 0.32) + horizonMask * fogColor;
-    skyboxColor = skyboxColor * (1 - sunMask) + i.lightCol * sunMask;
+    skyboxColor = skyboxColor * (1 - sunMask) + -L * sunMask;
 
     return float4(skyboxColor, 1.0);
 }

@@ -1,0 +1,154 @@
+#pragma once
+
+#define GLM_ENABLE_EXPERIMENTAL
+
+#include <vector>
+#include <array>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/euler_angles.hpp>
+#include <algorithm>
+#include <cmath>
+#include "dynamic_model.hpp"
+
+struct InputSignal {
+    float thrust;
+    float yaw;
+    float pitch;
+    float roll;
+};
+
+class Quadrotor : public DynamicModel {
+private:
+    // Параметры квадрокоптера
+    float m = 1.076f;      // общая масса БПЛА
+    float mc = 0.692f;     // масса корпуса
+    float mr = 0.008f;     // масса одного винта
+    float ml = 0.094f;     // масса луча с двигателем, винтом и регулятором
+    float r = 0.075f;      // радиус корпуса
+    float rr = 0.12f;      // радиус винта
+    float l = 0.2f;        // длина луча
+    float k = 0.00001f;    // коэффициент аэродинамического сопротивления
+    float km = 0.000000f;  // коэффициент реактивного момента
+    float g = 9.81f;       // ускорение свободного падения
+    float KV = 2400.0f;    // количество оборотов на вольт в минуту
+    float n = 0.7f;        // КПД двигателя под нагрузкой
+    int batteryCells = 4;  // количество литий-полимерных ячеек
+
+    // Угловая скорость винтов
+    float m_w1 = 0.0f;
+    float m_w2 = 0.0f;
+    float m_w3 = 0.0f;
+    float m_w4 = 0.0f;
+
+    // Тензор инерции
+    float m_Ix, m_Iy, m_Iz;
+
+public:
+    Quadrotor() {
+        // Инициализируем состояние: 4 вектора по 3 компоненты
+        // [0] - позиция (x, y, z)
+        // [1] - углы Эйлера (phi, theta, psi) - крен, тангаж, рыскание
+        // [2] - линейная скорость в связанной СК (u, v, w)
+        // [3] - угловая скорость (p, q, r)
+        m_state.resize(4, glm::vec3(0.0f));
+
+        // Вычисляем тензор инерции
+        m_Ix = (2.0f / 5.0f) * mc * std::pow(r, 2) + 2 * std::pow(l, 2) * ml;
+        m_Iy = (2.0f / 5.0f) * mc * std::pow(r, 2) + 4 * std::pow(l, 2) * ml;
+        m_Iz = (2.0f / 5.0f) * mc * std::pow(r, 2) + 2 * std::pow(l, 2) * ml;
+    }
+
+    // Установка напряжений на двигателях
+    void setInput(InputSignal input) {
+        m_w1 = input.thrust * 1000;
+        m_w2 = input.thrust * 1000;
+        m_w3 = input.thrust * 1000;
+        m_w4 = input.thrust * 1000;
+    }
+
+    // Преобразование из связанной СК в мировую через glm
+    glm::vec3 bodyToWorld(const glm::vec3& p) const {
+        const glm::vec3& angles = m_state[1]; // (phi, theta, psi)
+
+        // Создаем матрицу поворота из углов Эйлера
+        // Порядок: YXZ - сначала рыскание (psi), потом тангаж (theta), потом крен (phi)
+        glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.z, angles.x);
+
+        // Умножаем вектор
+        glm::vec4 p4(p, 0.0f);
+        glm::vec4 result = rotation * p4;
+
+        return glm::vec3(result);
+    }
+
+    // Реализация чисто виртуального метода evalF
+    std::vector<glm::vec3> evalF(const std::vector<glm::vec3>& state) const override {
+        // Текущее состояние
+        const glm::vec3& currPos = state[0];     // позиция
+        const glm::vec3& currAngles = state[1];  // углы (phi, theta, psi)
+        const glm::vec3& currVel = state[2];     // линейная скорость
+        const glm::vec3& currAngVel = state[3];  // угловая скорость
+
+        float phi = currAngles.x;
+        float theta = currAngles.y;
+        float psi = currAngles.z;
+
+        // Расчет сил винтов
+        float F1 = k * m_w1 * m_w1;
+        float F2 = k * m_w2 * m_w2;
+        float F3 = k * m_w3 * m_w3;
+        float F4 = k * m_w4 * m_w4;
+        float F_total = F1 + F2 + F3 + F4;
+
+        // Сила в связанной СК
+        glm::vec3 F_bs(0.0f, F_total, 0.0f);
+
+        // Преобразуем в мировую СК через glm
+        glm::vec3 m_Fws = bodyToWorld(F_bs);
+
+        // Реактивные моменты винтов
+        float M1 = -km * m_w1 * m_w1;
+        float M2 = km * m_w2 * m_w2;
+        float M3 = -km * m_w3 * m_w3;
+        float M4 = km * m_w4 * m_w4;
+
+        // Моменты управления
+        float Mx_pitch_phi = l * (F1 - F3);    // момент тангажа
+        float My_yaw_psi = M1 + M2 + M3 + M4;  // момент рыскания
+        float Mz_roll_theta = l * (F2 - F4);   // момент крена
+
+        // Производная позиции = скорость
+        glm::vec3 posDot = currVel;
+
+        // Производная углов
+        glm::vec3 anglesDot;
+        anglesDot.x = currAngVel.x * std::cos(theta) - currAngVel.y * std::sin(theta);
+        anglesDot.y = (currAngVel.x * std::sin(theta) + currAngVel.y * std::cos(theta)) / std::cos(phi);
+        anglesDot.z = currAngVel.z +
+            std::sin(theta) * std::tan(phi) * currAngVel.x +
+            std::cos(theta) * std::tan(phi) * currAngVel.y;
+
+        // Производная линейной скорости
+        glm::vec3 velDot;
+        velDot.x = m_Fws.x / m;
+        velDot.y = (m_Fws.y - g * m) / m;
+        velDot.z = m_Fws.z / m;
+
+        // Производная угловой скорости
+        glm::vec3 angVelDot;
+        angVelDot.x = Mx_pitch_phi / m_Ix;
+        angVelDot.y = My_yaw_psi / m_Iy;
+        angVelDot.z = Mz_roll_theta / m_Iz;
+
+        // Формируем результат
+        std::vector<glm::vec3> result;
+        result.reserve(4);
+        result.push_back(posDot);
+        result.push_back(anglesDot);
+        result.push_back(velDot);
+        result.push_back(angVelDot);
+
+        return result;
+    }
+};

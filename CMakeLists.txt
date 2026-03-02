@@ -63,13 +63,13 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/")
 
 
 set(MODEL_SOURCES
-    src/models/dynamic_model.cpp
-    src/models/test_model.cpp
-    src/models/quadrotor_model.cpp
+    src/models/dynamic_model.hpp
+    src/models/test_model.hpp
+    src/models/quadrotor_model.hpp
 )
 
 set(INTEGRATOR_SOURCES
-    src/integrators/integrators.cpp
+    src/integrators/integrators.hpp
 )
 
 
@@ -91,8 +91,8 @@ add_executable(${NAME} ${SOURCE_FILES})
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${NAME})
 
 # VS folders organization
-source_group("Source Files\\models" FILES ${MODEL_SOURCES})
-source_group("Source Files\\integrators" FILES ${INTEGRATOR_SOURCES})
+source_group("Header Files\\models" FILES ${MODEL_SOURCES})
+source_group("Header Files\\integrators" FILES ${INTEGRATOR_SOURCES})
 source_group("Source Files" FILES src/main.cpp)
 source_group("Shader Files" FILES ${SHADER_SOURCES})
 

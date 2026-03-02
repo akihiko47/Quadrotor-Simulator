@@ -22,12 +22,13 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
-#include "test_model.cpp"
-#include "integrators.cpp"
+#include "quadrotor_model.hpp"
+#include "integrators.hpp"
 
 // Model part
 ExplicitEuler integrator;
-TestModel model;
+Quadrotor model;
+InputSignal modelInput{};
 
 // Vulkan part
 constexpr uint32_t maxFramesInFlight{2};
@@ -63,6 +64,16 @@ VkBuffer vBuffer{VK_NULL_HANDLE};
 VmaAllocation vGroundBufferAllocation{VK_NULL_HANDLE};
 VkBuffer vGroundBuffer{VK_NULL_HANDLE};
 
+struct Light {
+	glm::vec4 position;
+	glm::vec4 direction;
+	glm::vec4 color; 
+	glm::vec4 attenuation;  // x = constant, y = linear, z = quadratic, w = cutOff angle
+	glm::uvec4 settings;    // x - type, y - enabled, z,w - padding
+	// TYPE: 0 = directional, 1 = point, 2 = spot
+	// ENABLED: 0/1
+};
+
 struct ShaderData {
 	glm::mat4 projection;
 	glm::mat4 view;
@@ -70,19 +81,23 @@ struct ShaderData {
 	glm::mat4 invP;
 	glm::mat4 invV;
 	glm::vec4 camPos;
-	glm::vec4 lightDir{1.0f, -0.5f, -1.0f, 0.0f};
-	glm::vec4 lightCol{1.0f, 0.98f, 0.9f, 1.0f};
-	glm::vec4 fogCol{0.7f, 0.85f, 1.0f, 1.0f};
-	glm::vec4 ambientCol{0.05f, 0.05f, 0.1f, 1.0f};
-	float fogDensity{0.1f};
+	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.1f};  // x, y, z - color, w - density
+	glm::vec4 ambientCol{0.0f, 0.0f, 0.0f, 0.0f};
+	Light lights[16];
+	uint32_t lightCount;
 	float time{0};
-	uint32_t selected{1};
 } shaderData{};
 
-struct ShaderDataBuffer {
+struct PushConstants {
+	VkDeviceAddress shaderDataAddress{};  // address to ShaderData
+	uint32_t modelMatrixIndex{0};
+	uint32_t textureIndex{0};
+} pushConstants{};
+
+struct ShaderDataBuffer {  // buffers that store ShaderData structs
 	VmaAllocation allocation{VK_NULL_HANDLE};
 	VkBuffer buffer{VK_NULL_HANDLE};
-	VkDeviceAddress deviceAddress{};
+	VkDeviceAddress deviceAddress{};  // address to ShaderData
 	void* mapped{nullptr};
 };
 std::array<ShaderDataBuffer, maxFramesInFlight> shaderDataBuffers;
@@ -100,7 +115,6 @@ VkDescriptorSetLayout descriptorSetLayoutTex{VK_NULL_HANDLE};
 VkDescriptorSet descriptorSetTex{VK_NULL_HANDLE};
 Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
 glm::vec3 camPos{0.0f, 1.0f, 6.0f};
-glm::vec3 objectRotations[3]{};
 glm::ivec2 windowSize{};
 
 struct Vertex {
@@ -224,7 +238,8 @@ int main(int argc, char* argv[]) {
 	};
 	const std::vector<const char*> deviceExtensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 	const VkPhysicalDeviceFeatures enabledVk10Features{
-		.samplerAnisotropy = VK_TRUE
+		.samplerAnisotropy = VK_TRUE,
+		.shaderInt64 = VK_TRUE,
 	};
 	VkDeviceCreateInfo deviceCI{
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -705,7 +720,7 @@ int main(int argc, char* argv[]) {
 		skyboxSlangSession->loadModuleFromSource("triangle", "assets/shader-skybox.slang", nullptr, nullptr)
 	};
 	Slang::ComPtr<ISlangBlob> opaqueSpirv;
-	Slang::ComPtr<ISlangBlob> skyboxSpirv;
+	Slang::ComPtr<ISlangBlob> skyboxSpirv; 
 	opaqueSlangModule->getTargetCode(0, opaqueSpirv.writeRef());
 	skyboxSlangModule->getTargetCode(0, skyboxSpirv.writeRef());
 	VkShaderModuleCreateInfo opaqueShaderModuleCI{
@@ -726,7 +741,7 @@ int main(int argc, char* argv[]) {
 	// Opaque Pipeline
 	VkPushConstantRange pushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, 
-		.size = sizeof(VkDeviceAddress)
+		.size = sizeof(PushConstants)
 	};
 	VkPipelineLayoutCreateInfo pipelineLayoutCI{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, 
@@ -833,7 +848,7 @@ int main(int argc, char* argv[]) {
 	// Skybox Pipeline
 	VkPushConstantRange skyboxPushConstantRange{
 		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-		.size = sizeof(VkDeviceAddress)
+		.size = sizeof(PushConstants)
 	};
 	VkPipelineLayoutCreateInfo skyboxPipelineLayoutCI{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -925,6 +940,36 @@ int main(int argc, char* argv[]) {
 	};
 	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyboxPipelineCI, nullptr, &skyboxPipeline));
 
+	// Populate model matrices
+	shaderData.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(-3.0f, 0.0f, 0.0f));
+	shaderData.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+	shaderData.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+	for (auto i = 0; i < maxFramesInFlight; i++) {
+		memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(ShaderData));
+	}
+
+	// Create lights
+	shaderData.lightCount = 3;
+	shaderData.lights[0] = {  // Sun
+		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+		.direction = glm::vec4(1.0f, -0.5f, -1.0f, 0.0f),
+		.color = glm::vec4(1.64f, 1.27f, 0.99f, 1.0f),
+		.settings = glm::uvec4(0, 1, 0, 0),
+	};
+	shaderData.lights[1] = {  // Sky
+		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+		.direction = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+		.color = glm::vec4(0.16f, 0.2f, 0.28f, 1.0f),
+		.settings = glm::uvec4(0, 1, 0, 0),
+	};
+	shaderData.lights[2] = {  // Sun bounce
+		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+		.direction = shaderData.lights[0].direction * glm::vec4(-1.0f, 0.0f, -1.0f, 0.0f),
+		.color = glm::vec4(0.4f, 0.28f, 0.2f, 1.0f),
+		.settings = glm::uvec4(0, 1, 0, 0),
+	};
+	
+
 	// Render loop
 	uint64_t lastTime{SDL_GetTicks()};
 	bool quit{false};
@@ -934,17 +979,20 @@ int main(int argc, char* argv[]) {
 		chk(vkResetFences(device, 1, &fences[frameIndex]));
 		chkSwapchain(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex));
 
+		// Update camera position
+		camPos = model.getState()[0] + glm::vec3(1.0f, 1.0f, 4.0f);
+
 		// Update shader data
+		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getState()[0]);
+		shaderData.view = glm::lookAt(camPos, model.getState()[0], glm::vec3(0.0f, 1.0f, 0.0f));
 		shaderData.projection = glm::perspective(glm::radians(70.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
 		shaderData.projection[1][1] *= -1;
-		shaderData.view = glm::lookAt(camPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		shaderData.invP = glm::inverse(shaderData.projection);
+		
 		shaderData.invV = glm::inverse(shaderData.view);
+		shaderData.invP = glm::inverse(shaderData.projection);
+		
 		shaderData.camPos = glm::vec4(camPos, 1.0f);
-		for (auto i = 0; i < 3; i++) {
-			auto instancePos = glm::vec3((float)(i - 1) * 3.0f, 0.0f, 0.0f);
-			shaderData.model[i] = glm::translate(glm::mat4(1.0f), instancePos) * glm::mat4_cast(glm::quat(objectRotations[i]));
-		}
+		
 		memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(ShaderData));
 
 		// Build command buffer
@@ -1036,13 +1084,20 @@ int main(int argc, char* argv[]) {
 		}};
 		vkCmdSetScissor(cb, 0, 1, &scissor);
 
+		// Push Constants
+		PushConstants pc{
+			.shaderDataAddress = shaderDataBuffers[frameIndex].deviceAddress,
+			.modelMatrixIndex = 0,
+			.textureIndex = 0,
+		};
+		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+
 		// Opaque
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipeline);
 		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
 		VkDeviceSize vOffset{0};
 		vkCmdBindVertexBuffers(cb, 0, 1, &vBuffer, &vOffset);
 		vkCmdBindIndexBuffer(cb, vBuffer, vBufSize, VK_INDEX_TYPE_UINT16);
-		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
 		vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
 
 		// Ground
@@ -1052,7 +1107,6 @@ int main(int argc, char* argv[]) {
 
 		// Skybox
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
-		vkCmdPushConstants(cb, skyboxPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VkDeviceAddress), &shaderDataBuffers[frameIndex].deviceAddress);
 		vkCmdDraw(cb, 3, 1, 0, 0);
 
 		vkCmdEndRendering(cb);
@@ -1148,21 +1202,17 @@ int main(int argc, char* argv[]) {
 				quit = true;
 				break;
 			}
-			if (event.type == SDL_EVENT_MOUSE_MOTION) {
-				if (event.button.button == SDL_BUTTON_LEFT) {
-					objectRotations[shaderData.selected].x -= (float)event.motion.yrel * elapsedTime;
-					objectRotations[shaderData.selected].y += (float)event.motion.xrel * elapsedTime;
-				}
-			}
-			if (event.type == SDL_EVENT_MOUSE_WHEEL) {
-				camPos.z += (float)event.wheel.y * elapsedTime * 100.0f;
-			}
+			//if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+			//	camPos.z += (float)event.wheel.y * elapsedTime * 100.0f;
+			//}
 			if (event.type == SDL_EVENT_KEY_DOWN) {
-				if (event.key.key == SDLK_PLUS || event.key.key == SDLK_KP_PLUS) {
-					shaderData.selected = (shaderData.selected < 2) ? shaderData.selected + 1 : 0;
+				if (event.key.key == SDLK_SPACE) {
+					modelInput.thrust = 1;
 				}
-				if (event.key.key == SDLK_MINUS || event.key.key == SDLK_KP_MINUS) {
-					shaderData.selected = (shaderData.selected > 0) ? shaderData.selected - 1 : 2;
+			}
+			if (event.type == SDL_EVENT_KEY_UP) {
+				if (event.key.key == SDLK_SPACE) {
+					modelInput.thrust = 0;
 				}
 			}
 			// Fullscreen
@@ -1179,6 +1229,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// Model integration
+		model.setInput(modelInput);
 		integrator.takeStep(model, elapsedTime);
 
 		// Swapchain update (if window resized)
