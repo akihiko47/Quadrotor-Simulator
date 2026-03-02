@@ -22,6 +22,14 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
+#include "test_model.cpp"
+#include "integrators.cpp"
+
+// Model part
+ExplicitEuler integrator;
+TestModel model;
+
+// Vulkan part
 constexpr uint32_t maxFramesInFlight{2};
 uint32_t imageIndex{0};
 uint32_t frameIndex{0};
@@ -94,6 +102,7 @@ Slang::ComPtr<slang::IGlobalSession> slangGlobalSession;
 glm::vec3 camPos{0.0f, 1.0f, 6.0f};
 glm::vec3 objectRotations[3]{};
 glm::ivec2 windowSize{};
+
 struct Vertex {
 	glm::vec3 pos;
 	glm::vec3 normal;
@@ -265,7 +274,7 @@ int main(int argc, char* argv[]) {
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
 	};
 	chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
 	uint32_t imageCount{0};
@@ -292,7 +301,7 @@ int main(int argc, char* argv[]) {
 	VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
 	if (counts & VK_SAMPLE_COUNT_64_BIT) { sampleCount = VK_SAMPLE_COUNT_64_BIT; } else if (counts & VK_SAMPLE_COUNT_32_BIT) { sampleCount = VK_SAMPLE_COUNT_32_BIT; } else if (counts & VK_SAMPLE_COUNT_16_BIT) { sampleCount = VK_SAMPLE_COUNT_16_BIT; } else if (counts & VK_SAMPLE_COUNT_8_BIT) { sampleCount = VK_SAMPLE_COUNT_8_BIT; } else if (counts & VK_SAMPLE_COUNT_4_BIT) { sampleCount = VK_SAMPLE_COUNT_4_BIT; } else if (counts & VK_SAMPLE_COUNT_2_BIT) { sampleCount = VK_SAMPLE_COUNT_2_BIT; }
 
-	std::cout << "Samples count: " << sampleCount << "\n";
+	std::cout << "MSAA Samples count: " << sampleCount << "\n";
 
 	// Depth attachment
 	std::vector<VkFormat> depthFormatList{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
@@ -405,7 +414,7 @@ int main(int argc, char* argv[]) {
 		{{ 150.0f, 0.0f,  150.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}, // bottom-right
 		{{-150.0f, 0.0f,  150.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}}  // bottom-left
 	};
-	std::vector<uint16_t> groundIndices{0, 1, 2, 0, 2, 3};
+	std::vector<uint16_t> groundIndices{0, 2, 1, 0, 3, 2};
 
 	VkDeviceSize vGroundBufSize{sizeof(Vertex) * groundVertices.size()};
 	VkDeviceSize iGroundBufSize{sizeof(uint16_t) * groundIndices.size()};
@@ -775,8 +784,11 @@ int main(int argc, char* argv[]) {
 		.scissorCount = 1
 	};
 	VkPipelineRasterizationStateCreateInfo rasterizationState{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, 
-		.lineWidth = 1.0f
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		.polygonMode = VK_POLYGON_MODE_FILL,
+		.cullMode = VK_CULL_MODE_BACK_BIT,
+		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.lineWidth = 1,
 	};
 	VkPipelineMultisampleStateCreateInfo multisampleState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, 
@@ -871,8 +883,7 @@ int main(int argc, char* argv[]) {
 	VkPipelineRasterizationStateCreateInfo skyboxRasterizationState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		.cullMode = VK_CULL_MODE_FRONT_BIT,
-		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-		.lineWidth = 1.0f,
+		.lineWidth = 1,
 	};
 	VkPipelineMultisampleStateCreateInfo skyboxMultisampleState{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -1166,6 +1177,11 @@ int main(int argc, char* argv[]) {
 				updateSwapchain = true;
 			}
 		}
+
+		// Model integration
+		integrator.takeStep(model, elapsedTime);
+
+		// Swapchain update (if window resized)
 		if (updateSwapchain) {
 			chk(SDL_GetWindowSize(window, &windowSize.x, &windowSize.y));
 			updateSwapchain = false;

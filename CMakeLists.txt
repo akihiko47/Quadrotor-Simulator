@@ -16,6 +16,9 @@ include_directories($ENV{VULKAN_SDK}/include)
 include_directories(external/tinyobj)
 include_directories(external/ktx/include)
 include_directories(external/ktx/other_include)
+include_directories(src)
+include_directories(src/models)
+include_directories(src/integrators)
 
 find_package (Vulkan REQUIRED)
 
@@ -58,7 +61,41 @@ if(MSVC)
 endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/")
 
-add_executable(${NAME} main.cpp assets/shader.slang)
+
+set(MODEL_SOURCES
+    src/models/dynamic_model.cpp
+    src/models/test_model.cpp
+    src/models/quadrotor_model.cpp
+)
+
+set(INTEGRATOR_SOURCES
+    src/integrators/integrators.cpp
+)
+
+
+set(SHADER_SOURCES
+    assets/shader.slang
+    assets/shader-skybox.slang
+)
+
+set(SOURCE_FILES
+    src/main.cpp
+    ${SHADER_SOURCES}
+    ${MODEL_SOURCES}
+    ${INTEGRATOR_SOURCES}
+)
+
+add_executable(${NAME} ${SOURCE_FILES})
+
+# VS default start-up project
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${NAME})
+
+# VS folders organization
+source_group("Source Files\\models" FILES ${MODEL_SOURCES})
+source_group("Source Files\\integrators" FILES ${INTEGRATOR_SOURCES})
+source_group("Source Files" FILES src/main.cpp)
+source_group("Shader Files" FILES ${SHADER_SOURCES})
+
 target_compile_definitions(${NAME} PRIVATE VK_NO_PROTOTYPES)
 if (WIN32)
     target_compile_definitions(${NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
