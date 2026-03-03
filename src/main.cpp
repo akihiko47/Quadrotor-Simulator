@@ -200,20 +200,6 @@ int main(int argc, char* argv[]) {
 
 	vkGetPhysicalDeviceFeatures2(devices[deviceIndex], &deviceFeatures2);
 
-	std::cout << "Vulkan 1.1 features:\n";
-	std::cout << "  shaderDrawParameters = " << features11.shaderDrawParameters << "\n";
-
-	std::cout << "Vulkan 1.2 features:\n";
-	std::cout << "  descriptorIndexing = " << features12.descriptorIndexing << "\n";
-	std::cout << "  shaderSampledImageArrayNonUniformIndexing = " << features12.shaderSampledImageArrayNonUniformIndexing << "\n";
-	std::cout << "  descriptorBindingVariableDescriptorCount = " << features12.descriptorBindingVariableDescriptorCount << "\n";
-	std::cout << "  runtimeDescriptorArray = " << features12.runtimeDescriptorArray << "\n";
-	std::cout << "  bufferDeviceAddress = " << features12.bufferDeviceAddress << "\n";
-
-	std::cout << "Vulkan 1.3 features:\n";
-	std::cout << "  synchronization2 = " << features13.synchronization2 << "\n";
-	std::cout << "  dynamicRendering = " << features13.dynamicRendering << "\n";
-
 	// Find a queue family for graphics
 	uint32_t queueFamilyCount{0};
 	vkGetPhysicalDeviceQueueFamilyProperties(devices[deviceIndex], &queueFamilyCount, nullptr);
@@ -310,7 +296,7 @@ int main(int argc, char* argv[]) {
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR,
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
 	};
 	chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
 	uint32_t imageCount{0};
