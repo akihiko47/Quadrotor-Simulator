@@ -16,10 +16,6 @@ struct Light {
     float4 position;
     float4 direction;
     float4 color;
-    float4 attenuation; // x = constant, y = linear, z = quadratic, w = cutOff angle
-    uint4 settings;     // x - type, y - enabled, z,w - padding
-    // TYPE: 0 = directional, 1 = point, 2 = spot
-    // ENABLED: 0/1
 };
 
 struct ShaderData {
@@ -31,10 +27,10 @@ struct ShaderData {
     float4 camPos;
     float4 fog;
     float4 ambientCol;
-    Light lights[16];
-    uint lightCount;
+    Light lights[3];
     float time;
 };
+
 struct VSOutput {
     float4 pos : SV_POSITION;
     ShaderData *shaderData;
@@ -111,26 +107,9 @@ float4 main(VSOutput i) {
 
     // Lights
     float3 color = float3(0);
-    for (uint i = 0; i < sd.lightCount; i++) {
-        if (sd.lights[i].settings.y == 0) continue;  // if not enabled
-
-        // if (i != 2) continue;
-
-        Light light = sd.lights[i];
-        float3 contribution = 0;
-
-        if (light.settings.x == 0) { // Directional
-            contribution = calculateDirectionalLight(light, albedo, N, V);
-        }
-        else if (light.settings.y == 1) { // Point
-            // contribution = calculatePointLight(light, fragPos, N, V);
-        }
-        else if (light.settings.y == 2) { // Spot
-            // contribution = calculateSpotLight(light, fragPos, N, V);
-        }
-
-        color += contribution;
-    }
+    color += calculateDirectionalLight(sd.lights[0], albedo, N, V);
+    color += calculateDirectionalLight(sd.lights[1], albedo, N, V);
+    color += calculateDirectionalLight(sd.lights[2], albedo, N, V);
 
     // Ambient
     color += sd.ambientCol.rgb;

@@ -8,10 +8,6 @@ struct Light {
     float4 position;
     float4 direction;
     float4 color;
-    float4 attenuation; // x = constant, y = linear, z = quadratic, w = cutOff angle
-    uint4 settings;     // x - type, y - enabled, z,w - padding
-    // TYPE: 0 = directional, 1 = point, 2 = spot
-    // ENABLED: 0/1
 };
 
 struct ShaderData {
@@ -23,8 +19,7 @@ struct ShaderData {
     float4 camPos;
     float4 fog;
     float4 ambientCol;
-    Light lights[16];
-    uint lightCount;
+    Light lights[3];
     float time;
 };
 

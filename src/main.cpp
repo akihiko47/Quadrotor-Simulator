@@ -68,10 +68,6 @@ struct Light {
 	glm::vec4 position;
 	glm::vec4 direction;
 	glm::vec4 color; 
-	glm::vec4 attenuation;  // x = constant, y = linear, z = quadratic, w = cutOff angle
-	glm::uvec4 settings;    // x - type, y - enabled, z,w - padding
-	// TYPE: 0 = directional, 1 = point, 2 = spot
-	// ENABLED: 0/1
 };
 
 struct ShaderData {
@@ -83,8 +79,7 @@ struct ShaderData {
 	glm::vec4 camPos;
 	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.1f};  // x, y, z - color, w - density
 	glm::vec4 ambientCol{0.0f, 0.0f, 0.0f, 0.0f};
-	Light lights[16];
-	uint32_t lightCount;
+	Light lights[3];
 	float time{0};
 } shaderData{};
 
@@ -289,7 +284,7 @@ int main(int argc, char* argv[]) {
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
 		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
+		.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR,
 	};
 	chk(vkCreateSwapchainKHR(device, &swapchainCI, nullptr, &swapchain));
 	uint32_t imageCount{0};
@@ -949,24 +944,20 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Create lights
-	shaderData.lightCount = 3;
 	shaderData.lights[0] = {  // Sun
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
 		.direction = glm::vec4(1.0f, -0.5f, -1.0f, 0.0f),
 		.color = glm::vec4(1.64f, 1.27f, 0.99f, 1.0f),
-		.settings = glm::uvec4(0, 1, 0, 0),
 	};
 	shaderData.lights[1] = {  // Sky
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
 		.direction = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
 		.color = glm::vec4(0.16f, 0.2f, 0.28f, 1.0f),
-		.settings = glm::uvec4(0, 1, 0, 0),
 	};
 	shaderData.lights[2] = {  // Sun bounce
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
 		.direction = shaderData.lights[0].direction * glm::vec4(-1.0f, 0.0f, -1.0f, 0.0f),
 		.color = glm::vec4(0.4f, 0.28f, 0.2f, 1.0f),
-		.settings = glm::uvec4(0, 1, 0, 0),
 	};
 	
 
