@@ -188,6 +188,32 @@ int main(int argc, char* argv[]) {
 	vkGetPhysicalDeviceProperties2(devices[deviceIndex], &deviceProperties);
 	std::cout << "Selected device: " << deviceProperties.properties.deviceName << "\n";
 
+	// Device features
+	VkPhysicalDeviceFeatures2 deviceFeatures2{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+	VkPhysicalDeviceVulkan11Features features11{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+	VkPhysicalDeviceVulkan12Features features12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+	VkPhysicalDeviceVulkan13Features features13{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+
+	deviceFeatures2.pNext = &features11;
+	features11.pNext = &features12;
+	features12.pNext = &features13;
+
+	vkGetPhysicalDeviceFeatures2(devices[deviceIndex], &deviceFeatures2);
+
+	std::cout << "Vulkan 1.1 features:\n";
+	std::cout << "  shaderDrawParameters = " << features11.shaderDrawParameters << "\n";
+
+	std::cout << "Vulkan 1.2 features:\n";
+	std::cout << "  descriptorIndexing = " << features12.descriptorIndexing << "\n";
+	std::cout << "  shaderSampledImageArrayNonUniformIndexing = " << features12.shaderSampledImageArrayNonUniformIndexing << "\n";
+	std::cout << "  descriptorBindingVariableDescriptorCount = " << features12.descriptorBindingVariableDescriptorCount << "\n";
+	std::cout << "  runtimeDescriptorArray = " << features12.runtimeDescriptorArray << "\n";
+	std::cout << "  bufferDeviceAddress = " << features12.bufferDeviceAddress << "\n";
+
+	std::cout << "Vulkan 1.3 features:\n";
+	std::cout << "  synchronization2 = " << features13.synchronization2 << "\n";
+	std::cout << "  dynamicRendering = " << features13.dynamicRendering << "\n";
+
 	// Find a queue family for graphics
 	uint32_t queueFamilyCount{0};
 	vkGetPhysicalDeviceQueueFamilyProperties(devices[deviceIndex], &queueFamilyCount, nullptr);
