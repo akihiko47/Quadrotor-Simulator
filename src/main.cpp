@@ -29,6 +29,7 @@
 ExplicitEuler integrator;
 Quadrotor model;
 InputSignal modelInput{};
+SDL_Gamepad* gamepad = nullptr;
 
 // Vulkan part
 constexpr uint32_t maxFramesInFlight{2};
@@ -145,7 +146,7 @@ static inline void chk(bool result) {
 
 int main(int argc, char* argv[]) {
 
-	chk(SDL_Init(SDL_INIT_VIDEO));
+	chk(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD));
 	chk(SDL_Vulkan_LoadLibrary(NULL));
 	volkInitialize();
 
@@ -1208,6 +1209,8 @@ int main(int argc, char* argv[]) {
 			//if (event.type == SDL_EVENT_MOUSE_WHEEL) {
 			//	camPos.z += (float)event.wheel.y * elapsedTime * 100.0f;
 			//}
+
+			// Space thrust
 			if (event.type == SDL_EVENT_KEY_DOWN) {
 				if (event.key.key == SDLK_SPACE) {
 					modelInput.thrust = 1;
@@ -1218,6 +1221,49 @@ int main(int argc, char* argv[]) {
 					modelInput.thrust = 0;
 				}
 			}
+
+			// Gamepad
+			if (event.type == SDL_EVENT_GAMEPAD_ADDED) {
+				if (gamepad == nullptr) {
+					gamepad = SDL_OpenGamepad(event.gdevice.which);
+					if (gamepad) {
+						std::cout << "Gamepad connected" << std::endl;
+					}
+				}
+			}
+
+			if (event.type == SDL_EVENT_GAMEPAD_REMOVED) {
+				if (gamepad && SDL_GetGamepadID(gamepad) == event.gdevice.which) {
+					SDL_CloseGamepad(gamepad);
+					gamepad = nullptr;
+					std::cout << "Gamepad disconnected" << std::endl;
+				}
+			}
+
+			if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+				float normalizedValue = 0.0f;
+				if (event.gaxis.value > 0) {
+					normalizedValue = static_cast<float>(event.gaxis.value) / 32767.0f;
+				} else if (event.gaxis.value < 0) {
+					normalizedValue = static_cast<float>(event.gaxis.value) / 32768.0f;
+				}
+
+				switch (event.gaxis.axis) {
+					case SDL_GAMEPAD_AXIS_LEFTX:
+						modelInput.yaw = normalizedValue;
+						break;
+					case SDL_GAMEPAD_AXIS_LEFTY:
+						modelInput.thrust = std::clamp(-normalizedValue, 0.0f, 1.0f);;
+						break;
+					case SDL_GAMEPAD_AXIS_RIGHTX:
+						modelInput.roll = normalizedValue;
+						break;
+					case SDL_GAMEPAD_AXIS_RIGHTY:
+						modelInput.pitch = normalizedValue;
+						break;
+				}
+			}
+
 			// Fullscreen
 			if (event.type == SDL_EVENT_KEY_DOWN) {
 				if (event.key.key == SDLK_F11) {

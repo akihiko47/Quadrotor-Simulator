@@ -12,10 +12,10 @@
 #include "dynamic_model.hpp"
 
 struct InputSignal {
-    float thrust;
-    float yaw;
-    float pitch;
-    float roll;
+    float thrust = 0;
+    float yaw = 0;
+    float pitch = 0;
+    float roll = 0;
 };
 
 class Quadrotor : public DynamicModel {
@@ -61,10 +61,12 @@ public:
 
     // Установка напряжений на двигателях
     void setInput(InputSignal input) {
-        m_w1 = input.thrust * 1000;
-        m_w2 = input.thrust * 1000;
-        m_w3 = input.thrust * 1000;
-        m_w4 = input.thrust * 1000;
+        float base = input.thrust * 1000.0f;
+
+        m_w1 = base + input.pitch * 200.0f + input.yaw * 100.0f;
+        m_w2 = base - input.roll * 200.0f - input.yaw * 100.0f;
+        m_w3 = base - input.pitch * 200.0f + input.yaw * 100.0f;
+        m_w4 = base + input.roll * 200.0f - input.yaw * 100.0f;
     }
 
     // Преобразование из связанной СК в мировую через glm
