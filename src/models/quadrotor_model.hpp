@@ -63,24 +63,18 @@ public:
     void setInput(InputSignal input) {
         float base = input.thrust * 1000.0f;
 
-        m_w1 = base + input.pitch * 200.0f + input.yaw * 100.0f;
-        m_w2 = base - input.roll * 200.0f - input.yaw * 100.0f;
-        m_w3 = base - input.pitch * 200.0f + input.yaw * 100.0f;
-        m_w4 = base + input.roll * 200.0f - input.yaw * 100.0f;
+        m_w1 = base + input.pitch * 10.0f + input.yaw * 10.0f;
+        m_w2 = base - input.roll * 10.0f - input.yaw * 10.0f;
+        m_w3 = base - input.pitch * 10.0f + input.yaw * 10.0f;
+        m_w4 = base + input.roll * 10.0f - input.yaw * 10.0f;
     }
 
     // Преобразование из связанной СК в мировую через glm
     glm::vec3 bodyToWorld(const glm::vec3& p) const {
-        const glm::vec3& angles = m_state[1]; // (phi, theta, psi)
-
-        // Создаем матрицу поворота из углов Эйлера
-        // Порядок: YXZ - сначала рыскание (psi), потом тангаж (theta), потом крен (phi)
-        glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.z, angles.x);
-
-        // Умножаем вектор
+        const glm::vec3& angles = m_state[1];
+        glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.x, angles.z);
         glm::vec4 p4(p, 0.0f);
         glm::vec4 result = rotation * p4;
-
         return glm::vec3(result);
     }
 

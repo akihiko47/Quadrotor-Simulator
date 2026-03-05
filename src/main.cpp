@@ -987,7 +987,10 @@ int main(int argc, char* argv[]) {
 		camPos = model.getState()[0] + glm::vec3(1.0f, 1.0f, 4.0f);
 
 		// Update shader data
+		glm::vec3 angles = model.getState()[1];
+		glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.x, angles.z);
 		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getState()[0]);
+		shaderData.model[1] = shaderData.model[1] * rotation;
 		shaderData.view = glm::lookAt(camPos, model.getState()[0], glm::vec3(0.0f, 1.0f, 0.0f));
 		shaderData.projection = glm::perspective(glm::radians(70.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
 		shaderData.projection[1][1] *= -1;
