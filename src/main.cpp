@@ -64,8 +64,10 @@ std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
 std::array<VkFence, maxFramesInFlight> fences;
 std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
-VmaAllocation vBufferAllocation{VK_NULL_HANDLE};
-VkBuffer vBuffer{VK_NULL_HANDLE};
+VmaAllocation vMonkeyBufferAllocation{VK_NULL_HANDLE};
+VkBuffer vMonkeyBuffer{VK_NULL_HANDLE};
+VmaAllocation vDroneBufferAllocation{VK_NULL_HANDLE};
+VkBuffer vDroneBuffer{VK_NULL_HANDLE};
 VmaAllocation vGroundBufferAllocation{VK_NULL_HANDLE};
 VkBuffer vGroundBuffer{VK_NULL_HANDLE};
 
@@ -458,41 +460,78 @@ int main(int argc, char* argv[]) {
 	ImGui_ImplVulkan_Init(&init_info);
 
 	// Mesh data
-	tinyobj::attrib_t attrib;
-	std::vector<tinyobj::shape_t> shapes;
-	std::vector<tinyobj::material_t> materials;
-	chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, "assets/suzanne.obj"));
-	const VkDeviceSize indexCount{shapes[0].mesh.indices.size()};
-	std::vector<Vertex> vertices{};
-	std::vector<uint16_t> indices{};
+	//tinyobj::attrib_t monkeyAttrib;
+	//std::vector<tinyobj::shape_t> monkeyShapes;
+	//std::vector<tinyobj::material_t> monkeyMaterials;
+	//chk(tinyobj::LoadObj(&monkeyAttrib, &monkeyShapes, &monkeyMaterials, nullptr, nullptr, "assets/suzanne.obj"));
+	//const VkDeviceSize indexCount{monkeyShapes[0].mesh.indices.size()};
+	//std::vector<Vertex> monkeyVertices{};
+	//std::vector<uint16_t> monkeyIndices{};
+
+	//// Load vertex and index data
+	//for (auto& index : monkeyShapes[0].mesh.indices) {
+	//	Vertex v{
+	//		.pos = { monkeyAttrib.vertices[index.vertex_index * 3], monkeyAttrib.vertices[index.vertex_index * 3 + 1], monkeyAttrib.vertices[index.vertex_index * 3 + 2] },
+	//		.normal = { monkeyAttrib.normals[index.normal_index * 3], monkeyAttrib.normals[index.normal_index * 3 + 1], monkeyAttrib.normals[index.normal_index * 3 + 2] },
+	//		.uv = { monkeyAttrib.texcoords[index.texcoord_index * 2], 1.0 - monkeyAttrib.texcoords[index.texcoord_index * 2 + 1] }
+	//	};
+	//	vertices.push_back(v);
+	//	indices.push_back(indices.size());
+	//}
+	//VkDeviceSize vBufSize{sizeof(Vertex) * vertices.size()};
+	//VkDeviceSize iBufSize{sizeof(uint16_t) * indices.size()};
+	//VkBufferCreateInfo bufferCI{
+	//	.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, 
+	//	.size = vBufSize + iBufSize, 
+	//	.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+	//};
+	//VmaAllocationCreateInfo bufferAllocCI{
+	//	.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, 
+	//	.usage = VMA_MEMORY_USAGE_AUTO
+	//};
+	//chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, &vBuffer, &vBufferAllocation, nullptr));
+	//void* bufferPtr{nullptr};
+	//chk(vmaMapMemory(allocator, vBufferAllocation, &bufferPtr));
+	//memcpy(bufferPtr, vertices.data(), vBufSize);
+	//memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
+	//vmaUnmapMemory(allocator, vBufferAllocation);
+
+	// Drone buffer
+	tinyobj::attrib_t droneAttrib;
+	std::vector<tinyobj::shape_t> droneShapes;
+	std::vector<tinyobj::material_t> droneMaterials;
+	chk(tinyobj::LoadObj(&droneAttrib, &droneShapes, &droneMaterials, nullptr, nullptr, "assets/drone.obj"));
+	const VkDeviceSize droneIndexCount{droneShapes[0].mesh.indices.size()};
+	std::vector<Vertex> droneVertices{};
+	std::vector<uint16_t> droneIndices{};
 
 	// Load vertex and index data
-	for (auto& index : shapes[0].mesh.indices) {
+	for (auto& index : droneShapes[0].mesh.indices) {
 		Vertex v{
-			.pos = { attrib.vertices[index.vertex_index * 3], attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] },
-			.normal = { attrib.normals[index.normal_index * 3], attrib.normals[index.normal_index * 3 + 1], attrib.normals[index.normal_index * 3 + 2] },
-			.uv = { attrib.texcoords[index.texcoord_index * 2], 1.0 - attrib.texcoords[index.texcoord_index * 2 + 1] }
+			.pos = { droneAttrib.vertices[index.vertex_index * 3], droneAttrib.vertices[index.vertex_index * 3 + 1], droneAttrib.vertices[index.vertex_index * 3 + 2] },
+			.normal = { droneAttrib.normals[index.normal_index * 3], droneAttrib.normals[index.normal_index * 3 + 1], droneAttrib.normals[index.normal_index * 3 + 2] },
+			.uv = { droneAttrib.texcoords[index.texcoord_index * 2], 1.0 - droneAttrib.texcoords[index.texcoord_index * 2 + 1] }
 		};
-		vertices.push_back(v);
-		indices.push_back(indices.size());
+		droneVertices.push_back(v);
+		droneIndices.push_back(droneIndices.size());
 	}
-	VkDeviceSize vBufSize{sizeof(Vertex) * vertices.size()};
-	VkDeviceSize iBufSize{sizeof(uint16_t) * indices.size()};
-	VkBufferCreateInfo bufferCI{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, 
-		.size = vBufSize + iBufSize, 
+	VkDeviceSize droneVBufSize{sizeof(Vertex) * droneVertices.size()};
+	VkDeviceSize droneIBufSize{sizeof(uint16_t) * droneIndices.size()};
+	VkBufferCreateInfo droneBufferCI{
+		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		.size = droneVBufSize + droneIBufSize,
 		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
 	};
-	VmaAllocationCreateInfo bufferAllocCI{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, 
+	VmaAllocationCreateInfo droneBufferAllocCI{
+		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
 		.usage = VMA_MEMORY_USAGE_AUTO
 	};
-	chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, &vBuffer, &vBufferAllocation, nullptr));
-	void* bufferPtr{nullptr};
-	chk(vmaMapMemory(allocator, vBufferAllocation, &bufferPtr));
-	memcpy(bufferPtr, vertices.data(), vBufSize);
-	memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
-	vmaUnmapMemory(allocator, vBufferAllocation);
+	chk(vmaCreateBuffer(allocator, &droneBufferCI, &droneBufferAllocCI, &vDroneBuffer, &vDroneBufferAllocation, nullptr));
+	void* droneBufferPtr{nullptr};
+	chk(vmaMapMemory(allocator, vDroneBufferAllocation, &droneBufferPtr));
+	memcpy(droneBufferPtr, droneVertices.data(), droneVBufSize);
+	memcpy(((char*)droneBufferPtr) + droneVBufSize, droneIndices.data(), droneIBufSize);
+	vmaUnmapMemory(allocator, vDroneBufferAllocation);
 
 	// Ground buffer
 	std::vector<Vertex> groundVertices{
@@ -1196,9 +1235,9 @@ int main(int argc, char* argv[]) {
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipeline);
 		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
 		VkDeviceSize vOffset{0};
-		vkCmdBindVertexBuffers(cb, 0, 1, &vBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, vBuffer, vBufSize, VK_INDEX_TYPE_UINT16);
-		vkCmdDrawIndexed(cb, indexCount, 3, 0, 0, 0);
+		vkCmdBindVertexBuffers(cb, 0, 1, &vDroneBuffer, &vOffset);
+		vkCmdBindIndexBuffer(cb, vDroneBuffer, droneVBufSize, VK_INDEX_TYPE_UINT16);
+		vkCmdDrawIndexed(cb, droneIndexCount, 3, 0, 0, 0);
 
 		// Ground
 		vkCmdBindVertexBuffers(cb, 0, 1, &vGroundBuffer, &vOffset);
@@ -1474,7 +1513,7 @@ int main(int argc, char* argv[]) {
 	for (auto i = 0; i < swapchainImageViews.size(); i++) {
 		vkDestroyImageView(device, swapchainImageViews[i], nullptr);
 	}
-	vmaDestroyBuffer(allocator, vBuffer, vBufferAllocation);
+	vmaDestroyBuffer(allocator, vDroneBuffer, vDroneBufferAllocation);
 	for (auto i = 0; i < textures.size(); i++) {
 		vkDestroyImageView(device, textures[i].view, nullptr);
 		vkDestroySampler(device, textures[i].sampler, nullptr);

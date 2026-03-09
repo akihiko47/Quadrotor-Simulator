@@ -33,7 +33,7 @@ struct VSOutput {
 
 float3 computeRayDir(float2 uv, float4x4 invPV) {
     float2 uvCenter = uv * 2.0 - 1.0;
-    float4 rayDir = float4(uvCenter.x * sin(radians(70.0 / 2.0)), uvCenter.y * sin(radians(70.0 / 2.0)), 1, 1);
+    float4 rayDir = float4(uvCenter.x * sin(radians(80.0 / 2.0)), uvCenter.y * sin(radians(80.0 / 2.0)), 1, 1);
     rayDir = normalize(rayDir);
     rayDir = normalize(mul(invPV, rayDir));
     float3 rd = rayDir.xyz;
