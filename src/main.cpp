@@ -1,4 +1,4 @@
-#define IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
+﻿#define IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
@@ -1047,7 +1047,29 @@ int main(int argc, char* argv[]) {
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplSDL3_NewFrame();
 		ImGui::NewFrame();
-		ImGui::ShowDemoWindow(); // Show demo window! :)
+
+		ImGui::SetNextWindowPos(ImVec2(
+			(float)windowSize.x * 0.5f,
+			(float)windowSize.y - 20.0f 
+		), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+
+		ImGui::Begin("Gamepad Input", nullptr,
+			ImGuiWindowFlags_NoTitleBar |
+			ImGuiWindowFlags_NoResize | 
+			ImGuiWindowFlags_AlwaysAutoResize | 
+			ImGuiWindowFlags_NoMove | 
+			ImGuiWindowFlags_NoScrollbar | 
+			ImGuiWindowFlags_NoCollapse 
+		);
+
+		ImGui::Text("Gamepad: %s", gamepad ? "Connected" : "Disconnected");
+		ImGui::Separator();
+		ImGui::SliderFloat("Thrust", &modelInput.thrust, 0.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Roll", &modelInput.roll, -1.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Pitch", &modelInput.pitch, -1.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Yaw", &modelInput.yaw, -1.0f, 1.0f, "%.3f");
+
+		ImGui::End();
 
 		// Sync
 		chk(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
@@ -1055,15 +1077,15 @@ int main(int argc, char* argv[]) {
 		chkSwapchain(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex));
 
 		// Update camera position
-		camPos = model.getState()[0] + glm::vec3(1.0f, 1.0f, 4.0f);
+		camPos = model.getState()[0] + model.bodyToWorld(glm::vec3(0.0f, 1.0f, 2.0f));
 
 		// Update shader data
 		glm::vec3 angles = model.getState()[1];
 		glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.x, angles.z);
 		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getState()[0]);
 		shaderData.model[1] = shaderData.model[1] * rotation;
-		shaderData.view = glm::lookAt(camPos, model.getState()[0], glm::vec3(0.0f, 1.0f, 0.0f));
-		shaderData.projection = glm::perspective(glm::radians(70.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
+		shaderData.view = glm::lookAt(camPos, model.getState()[0] + model.bodyToWorld(glm::vec3(0.0f, 0.0f, -1.0f)), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
+		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
 		shaderData.projection[1][1] *= -1;
 		
 		shaderData.invV = glm::inverse(shaderData.view);

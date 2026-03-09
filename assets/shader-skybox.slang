@@ -75,7 +75,7 @@ float4 main(VSOutput i) : SV_TARGET {
     float sunMask = smoothstep(0.9995, 0.9996, saturate(dot(rd, L)));
 
     float3 skyboxColor = skyMask * float3(0.53, 0.81, 0.92) + groundMask * float3(0.25, 0.28, 0.32) + horizonMask * fogColor;
-    skyboxColor = skyboxColor * (1 - sunMask) + -L * sunMask;
+    skyboxColor = skyboxColor * (1 - sunMask) + sunMask;
 
     return float4(skyboxColor, 1.0);
 }

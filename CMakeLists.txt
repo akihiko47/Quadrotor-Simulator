@@ -115,6 +115,7 @@ source_group("Header Files\\models" FILES ${MODEL_SOURCES})
 source_group("Header Files\\integrators" FILES ${INTEGRATOR_SOURCES})
 source_group("Source Files" FILES src/main.cpp)
 source_group("Shader Files" FILES ${SHADER_SOURCES})
+source_group("Imgui Files" FILES ${IMGUI_SOURCES})
 
 target_compile_definitions(${NAME} PRIVATE VK_NO_PROTOTYPES)
 if (WIN32)
