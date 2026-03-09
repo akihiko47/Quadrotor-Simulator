@@ -59,7 +59,7 @@ public:
 
     // Установка напряжений на двигателях
     void setInput(InputSignal input) {
-        float base = input.thrust * 1000.0f + 20.0f;
+        float base = input.thrust * 1000.0f + 100.0f;
 
         m_w1 = base + input.pitch * 10.0f + input.yaw * 10.0f;
         m_w2 = base - input.roll * 10.0f - input.yaw * 10.0f;
