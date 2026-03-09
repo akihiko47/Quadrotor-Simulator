@@ -30,7 +30,7 @@
 #include "integrators.hpp"
 
 // Model part
-ExplicitEuler integrator;
+RungeKutta4 integrator;
 Quadrotor model;
 InputSignal modelInput{};
 SDL_Gamepad* gamepad = nullptr;
@@ -1116,14 +1116,12 @@ int main(int argc, char* argv[]) {
 		chkSwapchain(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex));
 
 		// Update camera position
-		camPos = model.getState()[0] + model.bodyToWorld(glm::vec3(0.0f, 1.0f, 2.0f));
+		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 1.0f, 2.0f));
 
 		// Update shader data
-		glm::vec3 angles = model.getState()[1];
-		glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.x, angles.z);
-		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getState()[0]);
-		shaderData.model[1] = shaderData.model[1] * rotation;
-		shaderData.view = glm::lookAt(camPos, model.getState()[0] + model.bodyToWorld(glm::vec3(0.0f, 0.0f, -1.0f)), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
+		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos());
+		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos()) * model.getRotatationMatrix();
+		shaderData.view = glm::lookAt(camPos, model.getPos(), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
 		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
 		shaderData.projection[1][1] *= -1;
 		

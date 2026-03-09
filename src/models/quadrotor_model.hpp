@@ -44,11 +44,12 @@ private:
 public:
     Quadrotor() {
         // Инициализируем состояние: 4 вектора по 3 компоненты
-        // [0] - позиция (x, y, z)
-        // [1] - углы Эйлера (phi, theta, psi) - крен, тангаж, рыскание
-        // [2] - линейная скорость в связанной СК (u, v, w)
-        // [3] - угловая скорость (p, q, r)
-        m_state.resize(4, glm::vec3(0.0f));
+        // [0, 1, 2] - позиция (x, y, z)
+        // [3, 4, 5, 6] - кватернион вращения (w, x, y, z)
+        // [7, 8, 9] - линейная скорость в связанной СК (u, v, w)
+        // [10, 11, 12] - угловая скорость (p, q, r)
+        m_state.resize(13, 0.0f);
+        m_state[3] = 1.0f;  // unit quaternion
 
         // Вычисляем тензор инерции
         m_Ix = (2.0f / 5.0f) * mc * std::pow(r, 2) + 2 * std::pow(l, 2) * ml;
@@ -68,24 +69,25 @@ public:
 
     // Преобразование из связанной СК в мировую через glm
     glm::vec3 bodyToWorld(const glm::vec3& p) const {
-        const glm::vec3& angles = m_state[1];
-        glm::mat4 rotation = glm::eulerAngleYXZ(angles.y, angles.x, angles.z);
-        glm::vec4 p4(p, 0.0f);
-        glm::vec4 result = rotation * p4;
-        return glm::vec3(result);
+        glm::quat q = glm::quat(m_state[3], m_state[4], m_state[5], m_state[6]);
+        return q * p;
+    }
+
+    glm::vec3 getPos() {
+        return glm::vec3(m_state[0], m_state[1], m_state[2]);
+    }
+
+    glm::mat4 getRotatationMatrix() {
+        return glm::mat4_cast(glm::quat(m_state[3], m_state[4], m_state[5], m_state[6]));
     }
 
     // Реализация чисто виртуального метода evalF
-    std::vector<glm::vec3> evalF(const std::vector<glm::vec3>& state) const override {
+    std::vector<float> evalF(const std::vector<float>& state) const override {
         // Текущее состояние
-        const glm::vec3& currPos = state[0];     // позиция
-        const glm::vec3& currAngles = state[1];  // углы (phi, theta, psi)
-        const glm::vec3& currVel = state[2];     // линейная скорость
-        const glm::vec3& currAngVel = state[3];  // угловая скорость
-
-        float phi = currAngles.x;
-        float theta = currAngles.y;
-        float psi = currAngles.z;
+        const glm::vec3 currPos = glm::vec3(state[0], state[1], state[2]);        // позиция
+        const glm::quat currQuat = glm::quat(state[3], state[4], state[5], state[6]);  // кватернион
+        const glm::vec3 currVel = glm::vec3(state[7], state[8], state[9]);        // линейная скорость
+        const glm::vec3 currAngVel = glm::vec3(state[10], state[11], state[12]);  // угловая скорость
 
         // Расчет сил винтов
         float F1 = k * m_w1 * m_w1;
@@ -115,12 +117,9 @@ public:
         glm::vec3 posDot = currVel;
 
         // Производная углов
-        glm::vec3 anglesDot;
-        anglesDot.x = currAngVel.x * std::cos(theta) - currAngVel.y * std::sin(theta);
-        anglesDot.y = (currAngVel.x * std::sin(theta) + currAngVel.y * std::cos(theta)) / std::cos(phi);
-        anglesDot.z = currAngVel.z +
-            std::sin(theta) * std::tan(phi) * currAngVel.x +
-            std::cos(theta) * std::tan(phi) * currAngVel.y;
+        glm::quat angVelQuat = glm::quat(0.0f, currAngVel.x, currAngVel.y, currAngVel.z);
+        glm::quat quatDot;
+        quatDot = 0.5f * currQuat * angVelQuat;
 
         // Производная линейной скорости
         glm::vec3 velDot;
@@ -135,12 +134,21 @@ public:
         angVelDot.z = Mz_roll_theta / m_Iz;
 
         // Формируем результат
-        std::vector<glm::vec3> result;
-        result.reserve(4);
-        result.push_back(posDot);
-        result.push_back(anglesDot);
-        result.push_back(velDot);
-        result.push_back(angVelDot);
+        std::vector<float> result;
+        result.reserve(13);
+        result.push_back(posDot.x);
+        result.push_back(posDot.y);
+        result.push_back(posDot.z);
+        result.push_back(quatDot.w);
+        result.push_back(quatDot.x);
+        result.push_back(quatDot.y);
+        result.push_back(quatDot.z);
+        result.push_back(velDot.x);
+        result.push_back(velDot.y);
+        result.push_back(velDot.z);
+        result.push_back(angVelDot.x);
+        result.push_back(angVelDot.y);
+        result.push_back(angVelDot.z);
 
         return result;
     }

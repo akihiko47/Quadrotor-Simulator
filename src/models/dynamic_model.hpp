@@ -15,18 +15,18 @@ public:
     DynamicModel(DynamicModel&&) = default;
     DynamicModel& operator=(DynamicModel&&) = default;
 
-    virtual std::vector<vec3> evalF(const std::vector<vec3>& state) const = 0;
+    virtual std::vector<float> evalF(const std::vector<float>& state) const = 0;
 
-    const std::vector<vec3>& getState() const noexcept {
+    const std::vector<float>& getState() const noexcept {
         return m_state;
     }
 
-    void setState(std::vector<vec3> newState) noexcept {
+    void setState(std::vector<float> newState) noexcept {
         m_state = std::move(newState);
     }
 
 protected:
     DynamicModel() = default;
 
-    std::vector<vec3> m_state;
+    std::vector<float> m_state;
 };
