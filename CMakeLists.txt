@@ -14,6 +14,7 @@ endif()
 include_directories($ENV{VULKAN_SDK}/include)
 # These are not part of the SDK
 include_directories(external/tinyobj)
+include_directories(external/imgui)
 include_directories(external/ktx/include)
 include_directories(external/ktx/other_include)
 include_directories(src)
@@ -61,6 +62,24 @@ if(MSVC)
 endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/")
 
+set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
+set(IMGUI_SOURCES
+    ${IMGUI_DIR}/imgui.h
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imconfig.h
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_impl_sdl3.cpp
+    ${IMGUI_DIR}/imgui_impl_sdl3.h
+    ${IMGUI_DIR}/imgui_impl_vulkan.cpp
+    ${IMGUI_DIR}/imgui_impl_vulkan.h
+    ${IMGUI_DIR}/imgui_internal.h
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imstb_rectpack.h
+    ${IMGUI_DIR}/imstb_textedit.h
+    ${IMGUI_DIR}/imstb_truetype.h
+)
 
 set(MODEL_SOURCES
     src/models/dynamic_model.hpp
@@ -83,6 +102,7 @@ set(SOURCE_FILES
     ${SHADER_SOURCES}
     ${MODEL_SOURCES}
     ${INTEGRATOR_SOURCES}
+    ${IMGUI_SOURCES}
 )
 
 add_executable(${NAME} ${SOURCE_FILES})

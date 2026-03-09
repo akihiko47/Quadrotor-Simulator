@@ -1,6 +1,10 @@
+#define IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
+#include "imgui.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_vulkan.h"
 #define VOLK_IMPLEMENTATION
-#include <vulkan/vulkan.h>
 #include <volk/volk.h>
+#include <vulkan/vulkan.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vector>
@@ -260,6 +264,7 @@ int main(int argc, char* argv[]) {
 	};
 	chk(vkCreateDevice(devices[deviceIndex], &deviceCI, nullptr, &device));
 	vkGetDeviceQueue(device, queueFamily, 0, &queue);
+	volkLoadDevice(device);
 
 	// VMA
 	VmaVulkanFunctions vkFunctions{
@@ -392,6 +397,65 @@ int main(int argc, char* argv[]) {
 		.subresourceRange{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 }
 	};
 	chk(vkCreateImageView(device, &colorViewCI, nullptr, &colorImageView));
+
+	// Imgui setup
+	ImGui_ImplVulkan_LoadFunctions(
+		VK_API_VERSION_1_3,
+		[](const char* function_name, void* user_data) {
+			VkInstance* inst = static_cast<VkInstance*>(user_data);
+			return vkGetInstanceProcAddr(*inst, function_name);
+		},
+		static_cast<void*>(&instance)
+	);
+	std::vector<VkDescriptorPoolSize> poolSizes{
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+	};
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+	poolInfo.maxSets = 1000;
+	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+	poolInfo.pPoolSizes = poolSizes.data();
+
+	VkDescriptorPool imguiPool;
+	chk(vkCreateDescriptorPool(device, &poolInfo, nullptr, &imguiPool));
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	ImGui_ImplSDL3_InitForVulkan(window);
+	ImGui_ImplVulkan_InitInfo init_info = {};
+	init_info.Instance = instance;
+	init_info.PhysicalDevice = devices[deviceIndex];
+	init_info.Device = device;
+	init_info.QueueFamily = queueFamily;
+	init_info.Queue = queue;
+	init_info.DescriptorPool = imguiPool;
+	init_info.MinImageCount = 2;
+	init_info.ImageCount = 2;
+	init_info.Allocator = nullptr;
+	init_info.PipelineInfoMain.MSAASamples = sampleCount;
+	init_info.CheckVkResultFn = chk;
+	init_info.UseDynamicRendering = true;
+	init_info.PipelineInfoMain.PipelineRenderingCreateInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+	init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+	init_info.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat = depthFormat;
+	init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &imageFormat;
+	ImGui_ImplVulkan_Init(&init_info);
 
 	// Mesh data
 	tinyobj::attrib_t attrib;
@@ -978,6 +1042,13 @@ int main(int argc, char* argv[]) {
 	uint64_t lastTime{SDL_GetTicks()};
 	bool quit{false};
 	while (!quit) {
+
+		// Imgui frame
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplSDL3_NewFrame();
+		ImGui::NewFrame();
+		ImGui::ShowDemoWindow(); // Show demo window! :)
+
 		// Sync
 		chk(vkWaitForFences(device, 1, &fences[frameIndex], true, UINT64_MAX));
 		chk(vkResetFences(device, 1, &fences[frameIndex]));
@@ -1116,6 +1187,10 @@ int main(int argc, char* argv[]) {
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
 		vkCmdDraw(cb, 3, 1, 0, 0);
 
+		// Imgui
+		ImGui::Render();
+		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
+
 		vkCmdEndRendering(cb);
 
 		// Resolve
@@ -1174,6 +1249,7 @@ int main(int argc, char* argv[]) {
 		};
 		vkCmdPipelineBarrier2(cb, &barrierPresentDependencyInfo);
 
+		// End rendering
 		chk(vkEndCommandBuffer(cb));
 
 		// Submit to graphics queue
@@ -1205,6 +1281,8 @@ int main(int argc, char* argv[]) {
 		shaderData.time += elapsedTime;
 		lastTime = SDL_GetTicks();
 		for (SDL_Event event; SDL_PollEvent(&event);) {
+			ImGui_ImplSDL3_ProcessEvent(&event);
+
 			if (event.type == SDL_EVENT_QUIT) {
 				quit = true;
 				break;
@@ -1354,6 +1432,10 @@ int main(int argc, char* argv[]) {
 
 	// Tear down
 	chk(vkDeviceWaitIdle(device));
+	ImGui_ImplVulkan_Shutdown();
+	ImGui_ImplSDL3_Shutdown();
+	ImGui::DestroyContext();
+	vkDestroyDescriptorPool(device, imguiPool, nullptr);
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		vkDestroyFence(device, fences[i], nullptr);
 		vkDestroySemaphore(device, presentSemaphores[i], nullptr);
