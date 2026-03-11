@@ -1,5 +1,6 @@
 ﻿#define IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
 #include "imgui.h"
+#include "implot.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 #define VOLK_IMPLEMENTATION
@@ -32,7 +33,7 @@
 // Model part
 RungeKutta4 integrator;
 Quadrotor model;
-InputSignal modelInput{};
+InputSignal inputSignal{};
 SDL_Gamepad* gamepad = nullptr;
 
 // Vulkan part
@@ -70,6 +71,40 @@ VmaAllocation vDroneBufferAllocation{VK_NULL_HANDLE};
 VkBuffer vDroneBuffer{VK_NULL_HANDLE};
 VmaAllocation vGroundBufferAllocation{VK_NULL_HANDLE};
 VkBuffer vGroundBuffer{VK_NULL_HANDLE};
+
+float rates(float x) {
+	float sign = (x > 0) ? 1.0f : -1.0f;
+	x = std::clamp(std::abs(x), 0.0f, 1.0f);
+	static float d = 200.0f;
+	static float f = 670.0f;
+	static float g = 0.57f;
+	float h = x * (std::pow(x, 5.0) * g + x * (1 - g));
+	return sign * ((d * x) + ((f - d) * h));
+}
+
+float computePID(float current, float target, float kp, float ki, float kd, float dt) {
+	if (dt < 1e-6f) {
+		return 0.0f;
+	}
+
+	float err = target - current;
+	static float integral = 0, prevErr = 0;
+	integral += err * dt;
+	float D = (err - prevErr) / dt;
+	prevErr = err;
+	return (err * kp + integral * ki + D * kd);
+}
+
+void mixer(float thrust, float pidRoll, float pidPitch, float pidYaw, Quadrotor& model) {
+	float base = std::clamp(thrust * model.getMaxRotorAngVel(), model.getMinRotorAngVel(), model.getMaxRotorAngVel());
+
+	model.setMotorAngVel(
+		base + pidPitch + pidYaw,
+		base - pidRoll - pidYaw,
+		base - pidPitch + pidYaw,
+		base + pidRoll - pidYaw
+	);
+}
 
 struct Light {
 	glm::vec4 position;
@@ -123,6 +158,32 @@ struct Vertex {
 	glm::vec3 pos;
 	glm::vec3 normal;
 	glm::vec2 uv;
+};
+
+// utility structure for realtime plot
+struct ScrollingBuffer {
+	int MaxSize;
+	int Offset;
+	ImVector<ImVec2> Data;
+	ScrollingBuffer(int max_size = 2000) {
+		MaxSize = max_size;
+		Offset = 0;
+		Data.reserve(MaxSize);
+	}
+	void AddPoint(float x, float y) {
+		if (Data.size() < MaxSize)
+			Data.push_back(ImVec2(x, y));
+		else {
+			Data[Offset] = ImVec2(x, y);
+			Offset = (Offset + 1) % MaxSize;
+		}
+	}
+	void Erase() {
+		if (Data.size() > 0) {
+			Data.shrink(0);
+			Offset = 0;
+		}
+	}
 };
 
 static inline void chk(VkResult result) {
@@ -435,6 +496,7 @@ int main(int argc, char* argv[]) {
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
+	ImPlot::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -1087,6 +1149,7 @@ int main(int argc, char* argv[]) {
 		ImGui_ImplSDL3_NewFrame();
 		ImGui::NewFrame();
 
+		// Imgui input window
 		ImGui::SetNextWindowPos(ImVec2(
 			(float)windowSize.x * 0.5f,
 			(float)windowSize.y - 20.0f 
@@ -1094,20 +1157,59 @@ int main(int argc, char* argv[]) {
 
 		ImGui::Begin("Gamepad Input", nullptr,
 			ImGuiWindowFlags_NoTitleBar |
-			ImGuiWindowFlags_NoResize | 
-			ImGuiWindowFlags_AlwaysAutoResize | 
-			ImGuiWindowFlags_NoMove | 
-			ImGuiWindowFlags_NoScrollbar | 
-			ImGuiWindowFlags_NoCollapse 
+			ImGuiWindowFlags_NoScrollbar |
+			ImGuiWindowFlags_NoCollapse
 		);
 
 		ImGui::Text("Gamepad: %s", gamepad ? "Connected" : "Disconnected");
-		ImGui::Separator();
-		ImGui::SliderFloat("Thrust", &modelInput.thrust, 0.0f, 1.0f, "%.3f");
-		ImGui::SliderFloat("Roll", &modelInput.roll, -1.0f, 1.0f, "%.3f");
-		ImGui::SliderFloat("Pitch", &modelInput.pitch, -1.0f, 1.0f, "%.3f");
-		ImGui::SliderFloat("Yaw", &modelInput.yaw, -1.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Thrust", &inputSignal.thrust, 0.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Roll", &inputSignal.roll, -1.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Pitch", &inputSignal.pitch, -1.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Yaw", &inputSignal.yaw, -1.0f, 1.0f, "%.3f");
+		ImGui::End();
 
+		// Imgui plot
+		ImGui::SetNextWindowPos(ImVec2(
+			(float)windowSize.x - 20.0f,
+			20.0f
+		), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(400.0f, 0.0f), ImGuiCond_Once);
+
+		ImGui::Begin("PID regulators", nullptr,
+			ImGuiWindowFlags_NoTitleBar |
+			ImGuiWindowFlags_NoScrollbar |
+			ImGuiWindowFlags_NoCollapse
+		);
+
+		static ScrollingBuffer sdata1, sdata2;
+		ImVec2 mouse = ImGui::GetMousePos();
+
+		static float t = 0, last_t = 0.0f;  // add points every 0.02 seconds
+		if (t == 0 || t - last_t >= 0.02f) {
+			sdata1.AddPoint(t, rates(inputSignal.pitch));
+			sdata2.AddPoint(t, glm::degrees(model.getAngVel().x));
+			last_t = t;
+		}
+		t += ImGui::GetIO().DeltaTime;
+
+		static float history = 10.0f;
+		ImGui::SliderFloat("History", &history, 1, 30, "%.1f s");
+
+		static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
+
+		if (ImPlot::BeginPlot("##Scrolling", ImVec2(-1, ImGui::GetTextLineHeight() * 10))) {
+			ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+			ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+			ImPlot::SetupAxisLimits(ImAxis_Y1, -1000, 1000);
+			ImPlotSpec spec;
+			spec.Offset = sdata1.Offset;
+			spec.Stride = 2 * sizeof(float);
+			ImPlot::PlotLine("Target value", &sdata1.Data[0].x, &sdata1.Data[0].y, sdata1.Data.size(), spec);
+			spec.Offset = sdata2.Offset;
+			spec.Stride = 2 * sizeof(float);
+			ImPlot::PlotLine("Current value", &sdata2.Data[0].x, &sdata2.Data[0].y, sdata2.Data.size(), spec);
+			ImPlot::EndPlot();
+		}
 		ImGui::End();
 
 		// Sync
@@ -1353,12 +1455,12 @@ int main(int argc, char* argv[]) {
 			// Space thrust
 			if (event.type == SDL_EVENT_KEY_DOWN) {
 				if (event.key.key == SDLK_SPACE) {
-					modelInput.thrust = 1;
+					inputSignal.thrust = 1;
 				}
 			}
 			if (event.type == SDL_EVENT_KEY_UP) {
 				if (event.key.key == SDLK_SPACE) {
-					modelInput.thrust = 0;
+					inputSignal.thrust = 0;
 				}
 			}
 
@@ -1390,16 +1492,16 @@ int main(int argc, char* argv[]) {
 
 				switch (event.gaxis.axis) {
 					case SDL_GAMEPAD_AXIS_LEFTX:
-						modelInput.yaw = normalizedValue;
+						inputSignal.yaw = normalizedValue;
 						break;
 					case SDL_GAMEPAD_AXIS_LEFTY:
-						modelInput.thrust = std::clamp(-normalizedValue, 0.0f, 1.0f);;
+						inputSignal.thrust = std::clamp(-normalizedValue, 0.0f, 1.0f);;
 						break;
 					case SDL_GAMEPAD_AXIS_RIGHTX:
-						modelInput.roll = normalizedValue;
+						inputSignal.roll = normalizedValue;
 						break;
 					case SDL_GAMEPAD_AXIS_RIGHTY:
-						modelInput.pitch = normalizedValue;
+						inputSignal.pitch = normalizedValue;
 						break;
 				}
 			}
@@ -1418,7 +1520,10 @@ int main(int argc, char* argv[]) {
 		}
 
 		// Model integration
-		model.setInput(modelInput);
+		float targetPitch = rates(inputSignal.pitch);
+		float currentPitch = glm::degrees(model.getAngVel().x);
+		float pidPitch = computePID(currentPitch, targetPitch, 3.0f, 0.0f, 0.0f, elapsedTime);
+		mixer(inputSignal.thrust, 0, pidPitch, 0, model);
 		integrator.takeStep(model, elapsedTime);
 
 		// Swapchain update (if window resized)
@@ -1493,6 +1598,7 @@ int main(int argc, char* argv[]) {
 	chk(vkDeviceWaitIdle(device));
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplSDL3_Shutdown();
+	ImPlot::DestroyContext();
 	ImGui::DestroyContext();
 	vkDestroyDescriptorPool(device, imguiPool, nullptr);
 	for (auto i = 0; i < maxFramesInFlight; i++) {

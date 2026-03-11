@@ -37,6 +37,8 @@ private:
     float m_w2 = 0.0f;
     float m_w3 = 0.0f;
     float m_w4 = 0.0f;
+    float m_minRotorAngVel = 100.0f;  // В углах
+    float m_maxRotorAngVel = 1000.0f; // В углах
 
     // Тензор инерции
     float m_Ix, m_Iy, m_Iz;
@@ -58,13 +60,11 @@ public:
     }
 
     // Установка напряжений на двигателях
-    void setInput(InputSignal input) {
-        float base = input.thrust * 1000.0f + 100.0f;
-
-        m_w1 = base + input.pitch * 10.0f + input.yaw * 10.0f;
-        m_w2 = base - input.roll * 10.0f - input.yaw * 10.0f;
-        m_w3 = base - input.pitch * 10.0f + input.yaw * 10.0f;
-        m_w4 = base + input.roll * 10.0f - input.yaw * 10.0f;
+    void setMotorAngVel(float wf, float wr, float wb, float wl) {
+        m_w1 = wf;
+        m_w2 = wr;
+        m_w3 = wb;
+        m_w4 = wl;
     }
 
     // Преобразование из связанной СК в мировую через glm
@@ -75,6 +75,18 @@ public:
 
     glm::vec3 getPos() {
         return glm::vec3(m_state[0], m_state[1], m_state[2]);
+    }
+
+    glm::vec3 getAngVel() {
+        return glm::vec3(m_state[10], m_state[11], m_state[12]);
+    }
+
+    float getMinRotorAngVel() {
+        return m_minRotorAngVel;
+    }
+
+    float getMaxRotorAngVel() {
+        return m_maxRotorAngVel;
     }
 
     glm::mat4 getRotatationMatrix() {
@@ -116,7 +128,7 @@ public:
         // Производная позиции = скорость
         glm::vec3 posDot = currVel;
 
-        // Производная углов
+        // Производная кватерниона
         glm::quat angVelQuat = glm::quat(0.0f, currAngVel.x, currAngVel.y, currAngVel.z);
         glm::quat quatDot;
         quatDot = 0.5f * currQuat * angVelQuat;

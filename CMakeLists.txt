@@ -15,6 +15,7 @@ include_directories($ENV{VULKAN_SDK}/include)
 # These are not part of the SDK
 include_directories(external/tinyobj)
 include_directories(external/imgui)
+include_directories(external/implot)
 include_directories(external/ktx/include)
 include_directories(external/ktx/other_include)
 include_directories(src)
@@ -81,6 +82,15 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/imstb_truetype.h
 )
 
+set(IMPLOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/implot)
+set(IMPLOT_SOURCES
+    ${IMPLOT_DIR}/implot.h
+    ${IMPLOT_DIR}/implot.cpp
+    ${IMPLOT_DIR}/implot_internal.h
+    ${IMPLOT_DIR}/implot_items.cpp
+    ${IMPLOT_DIR}/implot_demo.cpp
+)
+
 set(MODEL_SOURCES
     src/models/dynamic_model.hpp
     src/models/test_model.hpp
@@ -103,6 +113,7 @@ set(SOURCE_FILES
     ${MODEL_SOURCES}
     ${INTEGRATOR_SOURCES}
     ${IMGUI_SOURCES}
+    ${IMPLOT_SOURCES}
 )
 
 add_executable(${NAME} ${SOURCE_FILES})
