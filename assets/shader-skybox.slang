@@ -25,19 +25,25 @@ struct ShaderData {
 
 struct VSOutput {
     float4 pos : SV_POSITION;
-    ShaderData* shaderData;
+    ShaderData *shaderData;
+    float4x4 invP;
+    float4x4 invV;
     float4x4 invPV;
     float2 uv;
     float3 rayDir;
 };
 
-float3 computeRayDir(float2 uv, float4x4 invPV) {
-    float2 uvCenter = uv * 2.0 - 1.0;
-    float4 rayDir = float4(uvCenter.x * sin(radians(80.0 / 2.0)), uvCenter.y * sin(radians(80.0 / 2.0)), 1, 1);
-    rayDir = normalize(rayDir);
-    rayDir = normalize(mul(invPV, rayDir));
-    float3 rd = rayDir.xyz;
-    return rd;
+float3 createRay(float2 px, float4x4 PInv, float4x4 VInv) {
+    float2 pxNDS = px * 2. - 1.;
+    float3 pointNDS = float3(pxNDS, -1.);
+    float4 pointNDSH = float4(pointNDS, 1.0);
+
+    float4 dirEye = mul(PInv, pointNDSH);
+    dirEye.w = 0.;
+
+    float3 dirWorld = mul(VInv, dirEye).xyz;
+
+    return normalize(dirWorld);
 }
 
 [shader("vertex")]
@@ -49,6 +55,8 @@ VSOutput main(uint vertexId: SV_VertexID, uniform PushConstants pushConstants) {
     output.uv = float2((vertexId << 1) & 2, vertexId & 2);
     output.pos = float4(output.uv * 2.0 - 1.0, 1.0, 1.0);
     output.invPV = mul(shaderData.invV, shaderData.invP);
+    output.invP = shaderData.invP;
+    output.invV = shaderData.invV;
 
     return output;
 }
@@ -58,7 +66,7 @@ float4 main(VSOutput i) : SV_TARGET {
     ShaderData sd = *i.shaderData;
 
     float3 L = normalize(-sd.lights[0].direction.xyz);
-    float3 rd = computeRayDir(i.uv, i.invPV);
+    float3 rd = createRay(i.uv, i.invP, i.invV);
 
     float3 ro = sd.camPos.xyz;
 
