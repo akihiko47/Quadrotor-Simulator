@@ -21,6 +21,7 @@ include_directories(external/ktx/other_include)
 include_directories(src)
 include_directories(src/models)
 include_directories(src/integrators)
+include_directories(src/control_system)
 
 find_package (Vulkan REQUIRED)
 
@@ -101,6 +102,11 @@ set(INTEGRATOR_SOURCES
     src/integrators/integrators.hpp
 )
 
+set(CONTROL_SYSTEM_SOURCES
+    src/control_system/mixer.hpp
+    src/control_system/pid.hpp
+    src/control_system/rates.hpp
+)
 
 set(SHADER_SOURCES
     assets/shader.slang
@@ -112,6 +118,7 @@ set(SOURCE_FILES
     ${SHADER_SOURCES}
     ${MODEL_SOURCES}
     ${INTEGRATOR_SOURCES}
+    ${CONTROL_SYSTEM_SOURCES}
     ${IMGUI_SOURCES}
     ${IMPLOT_SOURCES}
 )
@@ -124,6 +131,7 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT $
 # VS folders organization
 source_group("Header Files\\models" FILES ${MODEL_SOURCES})
 source_group("Header Files\\integrators" FILES ${INTEGRATOR_SOURCES})
+source_group("Header Files\\control system" FILES ${CONTROL_SYSTEM_SOURCES})
 source_group("Source Files" FILES src/main.cpp)
 source_group("Shader Files" FILES ${SHADER_SOURCES})
 source_group("Imgui Files" FILES ${IMGUI_SOURCES})

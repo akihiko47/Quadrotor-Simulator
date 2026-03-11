@@ -28,7 +28,7 @@ private:
     float r = 0.075f;      // радиус корпуса
     float rr = 0.12f;      // радиус винта
     float l = 0.2f;        // длина луча
-    float k = 0.00001f;    // коэффициент аэродинамического сопротивления
+    float k = 0.000001f;    // коэффициент аэродинамического сопротивления
     float km = 0.0000001f;  // коэффициент реактивного момента
     float g = 9.81f;       // ускорение свободного падения
 
@@ -37,8 +37,8 @@ private:
     float m_w2 = 0.0f;
     float m_w3 = 0.0f;
     float m_w4 = 0.0f;
-    float m_minRotorAngVel = 100.0f;  // В углах
-    float m_maxRotorAngVel = 1000.0f; // В углах
+    float m_minRotorAngVel = 500.0f;  // В углах
+    float m_maxRotorAngVel = 5000.0f; // В углах
 
     // Тензор инерции
     float m_Ix, m_Iy, m_Iz;
@@ -61,10 +61,10 @@ public:
 
     // Установка напряжений на двигателях
     void setMotorAngVel(float wf, float wr, float wb, float wl) {
-        m_w1 = wf;
-        m_w2 = wr;
-        m_w3 = wb;
-        m_w4 = wl;
+        m_w1 = std::clamp(wf, m_minRotorAngVel, m_maxRotorAngVel);
+        m_w2 = std::clamp(wr, m_minRotorAngVel, m_maxRotorAngVel);;
+        m_w3 = std::clamp(wb, m_minRotorAngVel, m_maxRotorAngVel);;
+        m_w4 = std::clamp(wl, m_minRotorAngVel, m_maxRotorAngVel);;
     }
 
     // Преобразование из связанной СК в мировую через glm

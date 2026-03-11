@@ -29,11 +29,16 @@
 
 #include "quadrotor_model.hpp"
 #include "integrators.hpp"
+#include "rates.hpp"
+#include "pid.hpp"
 
 // Model part
 RungeKutta4 integrator;
 Quadrotor model;
 InputSignal inputSignal{};
+PID rollPID{10.0f, 0.0f, 0.0f};
+PID pitchPID{10.0f, 0.0f, 0.0f};
+PID yawPID{10.0f, 0.0f, 0.0f};
 SDL_Gamepad* gamepad = nullptr;
 
 // Vulkan part
@@ -72,28 +77,6 @@ VkBuffer vDroneBuffer{VK_NULL_HANDLE};
 VmaAllocation vGroundBufferAllocation{VK_NULL_HANDLE};
 VkBuffer vGroundBuffer{VK_NULL_HANDLE};
 
-float rates(float x) {
-	float sign = (x > 0) ? 1.0f : -1.0f;
-	x = std::clamp(std::abs(x), 0.0f, 1.0f);
-	static float d = 200.0f;
-	static float f = 670.0f;
-	static float g = 0.57f;
-	float h = x * (std::pow(x, 5.0) * g + x * (1 - g));
-	return sign * ((d * x) + ((f - d) * h));
-}
-
-float computePID(float current, float target, float kp, float ki, float kd, float dt) {
-	if (dt < 1e-6f) {
-		return 0.0f;
-	}
-
-	float err = target - current;
-	static float integral = 0, prevErr = 0;
-	integral += err * dt;
-	float D = (err - prevErr) / dt;
-	prevErr = err;
-	return (err * kp + integral * ki + D * kd);
-}
 
 void mixer(float thrust, float pidRoll, float pidPitch, float pidYaw, Quadrotor& model) {
 	float base = std::clamp(thrust * model.getMaxRotorAngVel(), model.getMinRotorAngVel(), model.getMaxRotorAngVel());
@@ -1181,13 +1164,17 @@ int main(int argc, char* argv[]) {
 			ImGuiWindowFlags_NoCollapse
 		);
 
-		static ScrollingBuffer sdata1, sdata2;
+		static ScrollingBuffer rollTargetData, rollCurrentData, pitchTargetData, pitchCurrentData, yawTargetData, yawCurrentData;
 		ImVec2 mouse = ImGui::GetMousePos();
 
 		static float t = 0, last_t = 0.0f;  // add points every 0.02 seconds
 		if (t == 0 || t - last_t >= 0.02f) {
-			sdata1.AddPoint(t, rates(inputSignal.pitch));
-			sdata2.AddPoint(t, glm::degrees(model.getAngVel().x));
+			rollTargetData.AddPoint(t, -Rates::evalRate(inputSignal.roll));
+			rollCurrentData.AddPoint(t, glm::degrees(model.getAngVel().z));
+			pitchTargetData.AddPoint(t, Rates::evalRate(inputSignal.pitch));
+			pitchCurrentData.AddPoint(t, glm::degrees(model.getAngVel().x));
+			yawTargetData.AddPoint(t, -Rates::evalRate(inputSignal.yaw));
+			yawCurrentData.AddPoint(t, glm::degrees(model.getAngVel().y));
 			last_t = t;
 		}
 		t += ImGui::GetIO().DeltaTime;
@@ -1197,17 +1184,43 @@ int main(int argc, char* argv[]) {
 
 		static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
 
-		if (ImPlot::BeginPlot("##Scrolling", ImVec2(-1, ImGui::GetTextLineHeight() * 10))) {
-			ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+		if (ImPlot::BeginPlot("##Roll", ImVec2(-1, ImGui::GetTextLineHeight() * 10))) {
+			ImPlot::SetupAxes(nullptr, "Angular Velocity", flags, flags);
 			ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
 			ImPlot::SetupAxisLimits(ImAxis_Y1, -1000, 1000);
 			ImPlotSpec spec;
-			spec.Offset = sdata1.Offset;
+			spec.Offset = rollTargetData.Offset;
 			spec.Stride = 2 * sizeof(float);
-			ImPlot::PlotLine("Target value", &sdata1.Data[0].x, &sdata1.Data[0].y, sdata1.Data.size(), spec);
-			spec.Offset = sdata2.Offset;
+			ImPlot::PlotLine("Roll Target", &rollTargetData.Data[0].x, &rollTargetData.Data[0].y, rollTargetData.Data.size(), spec);
+			spec.Offset = rollCurrentData.Offset;
 			spec.Stride = 2 * sizeof(float);
-			ImPlot::PlotLine("Current value", &sdata2.Data[0].x, &sdata2.Data[0].y, sdata2.Data.size(), spec);
+			ImPlot::PlotLine("Roll Current", &rollCurrentData.Data[0].x, &rollCurrentData.Data[0].y, rollCurrentData.Data.size(), spec);
+			ImPlot::EndPlot();
+		}
+		if (ImPlot::BeginPlot("##Pitch", ImVec2(-1, ImGui::GetTextLineHeight() * 10))) {
+			ImPlot::SetupAxes(nullptr, "Angular Velocity", flags, flags);
+			ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+			ImPlot::SetupAxisLimits(ImAxis_Y1, -1000, 1000);
+			ImPlotSpec spec;
+			spec.Offset = pitchTargetData.Offset;
+			spec.Stride = 2 * sizeof(float);
+			ImPlot::PlotLine("Pitch Target", &pitchTargetData.Data[0].x, &pitchTargetData.Data[0].y, pitchTargetData.Data.size(), spec);
+			spec.Offset = pitchCurrentData.Offset;
+			spec.Stride = 2 * sizeof(float);
+			ImPlot::PlotLine("Pitch Current", &pitchCurrentData.Data[0].x, &pitchCurrentData.Data[0].y, pitchCurrentData.Data.size(), spec);
+			ImPlot::EndPlot();
+		}
+		if (ImPlot::BeginPlot("##Yaw", ImVec2(-1, ImGui::GetTextLineHeight() * 10))) {
+			ImPlot::SetupAxes(nullptr, "Angular Velocity", flags, flags);
+			ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+			ImPlot::SetupAxisLimits(ImAxis_Y1, -1000, 1000);
+			ImPlotSpec spec;
+			spec.Offset = yawTargetData.Offset;
+			spec.Stride = 2 * sizeof(float);
+			ImPlot::PlotLine("Yaw Target", &yawTargetData.Data[0].x, &yawTargetData.Data[0].y, yawTargetData.Data.size(), spec);
+			spec.Offset = yawCurrentData.Offset;
+			spec.Stride = 2 * sizeof(float);
+			ImPlot::PlotLine("Yaw Current", &yawCurrentData.Data[0].x, &yawCurrentData.Data[0].y, yawCurrentData.Data.size(), spec);
 			ImPlot::EndPlot();
 		}
 		ImGui::End();
@@ -1218,7 +1231,7 @@ int main(int argc, char* argv[]) {
 		chkSwapchain(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex));
 
 		// Update camera position
-		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 1.0f, 2.0f));
+		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.0f, 0.01f));
 
 		// Update shader data
 		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos());
@@ -1520,10 +1533,20 @@ int main(int argc, char* argv[]) {
 		}
 
 		// Model integration
-		float targetPitch = rates(inputSignal.pitch);
+		float currentRoll = -glm::degrees(model.getAngVel().z);
 		float currentPitch = glm::degrees(model.getAngVel().x);
-		float pidPitch = computePID(currentPitch, targetPitch, 3.0f, 0.0f, 0.0f, elapsedTime);
-		mixer(inputSignal.thrust, 0, pidPitch, 0, model);
+		float currentYaw = -glm::degrees(model.getAngVel().y);
+
+		float targetRoll = Rates::evalRate(inputSignal.roll);
+		float targetPitch = Rates::evalRate(inputSignal.pitch);
+		float targetYaw = Rates::evalRate(inputSignal.yaw);
+
+		float rollCorrection = rollPID.compute(currentRoll, targetRoll, elapsedTime);
+		float pitchCorrection = pitchPID.compute(currentPitch, targetPitch, elapsedTime);
+		float yawCorrection = yawPID.compute(currentYaw, targetYaw, elapsedTime);
+
+		mixer(inputSignal.thrust, rollCorrection, pitchCorrection, yawCorrection, model);
+
 		integrator.takeStep(model, elapsedTime);
 
 		// Swapchain update (if window resized)
