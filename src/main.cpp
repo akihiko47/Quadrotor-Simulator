@@ -70,13 +70,6 @@ std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
 std::array<VkFence, maxFramesInFlight> fences;
 std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
-VmaAllocation vMonkeyBufferAllocation{VK_NULL_HANDLE};
-VkBuffer vMonkeyBuffer{VK_NULL_HANDLE};
-VmaAllocation vDroneBufferAllocation{VK_NULL_HANDLE};
-VkBuffer vDroneBuffer{VK_NULL_HANDLE};
-VmaAllocation vGroundBufferAllocation{VK_NULL_HANDLE};
-VkBuffer vGroundBuffer{VK_NULL_HANDLE};
-
 
 void mixer(float thrust, float pidRoll, float pidPitch, float pidYaw, Quadrotor& model) {
 	float base = std::clamp(thrust * model.getMaxRotorAngVel(), model.getMinRotorAngVel(), model.getMaxRotorAngVel());
@@ -98,11 +91,11 @@ struct Light {
 struct ShaderData {
 	glm::mat4 projection;
 	glm::mat4 view;
-	glm::mat4 model[3];
+	glm::mat4 model[16];
 	glm::mat4 invP;
 	glm::mat4 invV;
 	glm::vec4 camPos;
-	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.1f};  // x, y, z - color, w - density
+	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.01f};  // x, y, z - color, w - density
 	glm::vec4 ambientCol{0.0f, 0.0f, 0.0f, 0.0f};
 	Light lights[3];
 	float time{0};
@@ -193,6 +186,57 @@ static inline void chk(bool result) {
 		exit(result);
 	}
 }
+
+struct MeshData {
+	VmaAllocation vBufferAllocation{VK_NULL_HANDLE};
+	VkBuffer vBuffer{VK_NULL_HANDLE};
+	VkDeviceSize vBufSize;
+	VkDeviceSize vertexCount;
+	VkDeviceSize indexCount;
+
+	void loadModelToBuffer(const std::string& filePath, VmaAllocator& allocator) {
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::material_t> materials;
+		chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, filePath.c_str()));
+		std::vector<Vertex> vertices{};
+		std::vector<uint16_t> indices{};
+
+		// Load vertex and index data
+		for (auto& index : shapes[0].mesh.indices) {
+			Vertex v{
+				.pos = { attrib.vertices[index.vertex_index * 3], attrib.vertices[index.vertex_index * 3 + 1], attrib.vertices[index.vertex_index * 3 + 2] },
+				.normal = { attrib.normals[index.normal_index * 3], attrib.normals[index.normal_index * 3 + 1], attrib.normals[index.normal_index * 3 + 2] },
+				.uv = { attrib.texcoords[index.texcoord_index * 2], 1.0 - attrib.texcoords[index.texcoord_index * 2 + 1] }
+			};
+			vertices.push_back(v);
+			indices.push_back(indices.size());
+		}
+		vertexCount = vertices.size();
+		indexCount = indices.size();
+		vBufSize = sizeof(Vertex) * vertices.size();
+		VkDeviceSize iBufSize{sizeof(uint16_t) * indices.size()};
+		VkBufferCreateInfo bufferCI{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			.size = vBufSize + iBufSize,
+			.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+		};
+		VmaAllocationCreateInfo bufferAllocCI{
+			.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+			.usage = VMA_MEMORY_USAGE_AUTO
+		};
+		chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, &vBuffer, &vBufferAllocation, nullptr));
+		void* bufferPtr{nullptr};
+		chk(vmaMapMemory(allocator, vBufferAllocation, &bufferPtr));
+		memcpy(bufferPtr, vertices.data(), vBufSize);
+		memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
+		vmaUnmapMemory(allocator, vBufferAllocation);
+	}
+
+	void free(VmaAllocator& allocator) {
+		vmaDestroyBuffer(allocator, vBuffer, vBufferAllocation);
+	}
+};
 
 int main(int argc, char* argv[]) {
 
@@ -542,69 +586,10 @@ int main(int argc, char* argv[]) {
 	//vmaUnmapMemory(allocator, vBufferAllocation);
 
 	// Drone buffer
-	tinyobj::attrib_t droneAttrib;
-	std::vector<tinyobj::shape_t> droneShapes;
-	std::vector<tinyobj::material_t> droneMaterials;
-	chk(tinyobj::LoadObj(&droneAttrib, &droneShapes, &droneMaterials, nullptr, nullptr, "assets/drone.obj"));
-	const VkDeviceSize droneIndexCount{droneShapes[0].mesh.indices.size()};
-	std::vector<Vertex> droneVertices{};
-	std::vector<uint16_t> droneIndices{};
-
-	// Load vertex and index data
-	for (auto& index : droneShapes[0].mesh.indices) {
-		Vertex v{
-			.pos = { droneAttrib.vertices[index.vertex_index * 3], droneAttrib.vertices[index.vertex_index * 3 + 1], droneAttrib.vertices[index.vertex_index * 3 + 2] },
-			.normal = { droneAttrib.normals[index.normal_index * 3], droneAttrib.normals[index.normal_index * 3 + 1], droneAttrib.normals[index.normal_index * 3 + 2] },
-			.uv = { droneAttrib.texcoords[index.texcoord_index * 2], 1.0 - droneAttrib.texcoords[index.texcoord_index * 2 + 1] }
-		};
-		droneVertices.push_back(v);
-		droneIndices.push_back(droneIndices.size());
-	}
-	VkDeviceSize droneVBufSize{sizeof(Vertex) * droneVertices.size()};
-	VkDeviceSize droneIBufSize{sizeof(uint16_t) * droneIndices.size()};
-	VkBufferCreateInfo droneBufferCI{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = droneVBufSize + droneIBufSize,
-		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-	};
-	VmaAllocationCreateInfo droneBufferAllocCI{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-		.usage = VMA_MEMORY_USAGE_AUTO
-	};
-	chk(vmaCreateBuffer(allocator, &droneBufferCI, &droneBufferAllocCI, &vDroneBuffer, &vDroneBufferAllocation, nullptr));
-	void* droneBufferPtr{nullptr};
-	chk(vmaMapMemory(allocator, vDroneBufferAllocation, &droneBufferPtr));
-	memcpy(droneBufferPtr, droneVertices.data(), droneVBufSize);
-	memcpy(((char*)droneBufferPtr) + droneVBufSize, droneIndices.data(), droneIBufSize);
-	vmaUnmapMemory(allocator, vDroneBufferAllocation);
-
-	// Ground buffer
-	std::vector<Vertex> groundVertices{
-		{{-150.0f, 0.0f, -150.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}}, // top-left
-		{{ 150.0f, 0.0f, -150.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}}, // top-right
-		{{ 150.0f, 0.0f,  150.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}, // bottom-right
-		{{-150.0f, 0.0f,  150.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}}  // bottom-left
-	};
-	std::vector<uint16_t> groundIndices{0, 2, 1, 0, 3, 2};
-
-	VkDeviceSize vGroundBufSize{sizeof(Vertex) * groundVertices.size()};
-	VkDeviceSize iGroundBufSize{sizeof(uint16_t) * groundIndices.size()};
-	VkBufferCreateInfo GroundBufferCI{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = vGroundBufSize + iGroundBufSize,
-		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-	};
-	VmaAllocationCreateInfo GroundBufferAllocCI{
-		.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-		.usage = VMA_MEMORY_USAGE_AUTO
-	};
-	chk(vmaCreateBuffer(allocator, &GroundBufferCI, &GroundBufferAllocCI, &vGroundBuffer, &vGroundBufferAllocation, nullptr));
-	void* groundBufferPtr{nullptr};
-	chk(vmaMapMemory(allocator, vGroundBufferAllocation, &groundBufferPtr));
-	memcpy(groundBufferPtr, groundVertices.data(), vGroundBufSize);
-	memcpy(((char*)groundBufferPtr) + vGroundBufSize, groundIndices.data(), iGroundBufSize);
-	vmaUnmapMemory(allocator, vGroundBufferAllocation);
-
+	MeshData mapMesh{};
+	mapMesh.loadModelToBuffer("assets/map.obj", allocator);
+	MeshData droneMesh{};
+	droneMesh.loadModelToBuffer("assets/drone.obj", allocator);
 
 	// Shader data buffers
 	for (auto i = 0; i < maxFramesInFlight; i++) {
@@ -1097,9 +1082,8 @@ int main(int argc, char* argv[]) {
 	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyboxPipelineCI, nullptr, &skyboxPipeline));
 
 	// Populate model matrices
-	shaderData.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(-3.0f, 0.0f, 0.0f));
-	shaderData.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-	shaderData.model[2] = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 0.0f, 0.0f));
+	shaderData.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+	shaderData.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 3.0f, 0.0f));
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(ShaderData));
 	}
@@ -1234,7 +1218,6 @@ int main(int argc, char* argv[]) {
 		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.0f, 0.01f));
 
 		// Update shader data
-		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos());
 		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos()) * model.getRotatationMatrix();
 		shaderData.view = glm::lookAt(camPos, model.getPos(), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
 		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
@@ -1336,7 +1319,9 @@ int main(int argc, char* argv[]) {
 		}};
 		vkCmdSetScissor(cb, 0, 1, &scissor);
 
-		// Push Constants
+		// Opague
+		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipeline);
+		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
 		PushConstants pc{
 			.shaderDataAddress = shaderDataBuffers[frameIndex].deviceAddress,
 			.modelMatrixIndex = 0,
@@ -1344,18 +1329,18 @@ int main(int argc, char* argv[]) {
 		};
 		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
 
-		// Opaque
-		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipeline);
-		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
-		VkDeviceSize vOffset{0};
-		vkCmdBindVertexBuffers(cb, 0, 1, &vDroneBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, vDroneBuffer, droneVBufSize, VK_INDEX_TYPE_UINT16);
-		vkCmdDrawIndexed(cb, droneIndexCount, 3, 0, 0, 0);
-
 		// Ground
-		vkCmdBindVertexBuffers(cb, 0, 1, &vGroundBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, vGroundBuffer, vGroundBufSize, VK_INDEX_TYPE_UINT16);
-		vkCmdDrawIndexed(cb, groundIndices.size(), 1, 0, 0, 3);
+		VkDeviceSize vOffset{0};
+		vkCmdBindVertexBuffers(cb, 0, 1, &mapMesh.vBuffer, &vOffset);
+		vkCmdBindIndexBuffer(cb, mapMesh.vBuffer, mapMesh.vBufSize, VK_INDEX_TYPE_UINT16);
+		vkCmdDrawIndexed(cb, mapMesh.indexCount, 1, 0, 0, 3);
+
+		// Drone
+		pc.modelMatrixIndex = 1;
+		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+		vkCmdBindVertexBuffers(cb, 0, 1, &droneMesh.vBuffer, &vOffset);
+		vkCmdBindIndexBuffer(cb, droneMesh.vBuffer, droneMesh.vBufSize, VK_INDEX_TYPE_UINT16);
+		vkCmdDraw(cb, droneMesh.vertexCount, 1, 0, 0);
 
 		// Skybox
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
@@ -1640,13 +1625,13 @@ int main(int argc, char* argv[]) {
 	for (auto i = 0; i < swapchainImageViews.size(); i++) {
 		vkDestroyImageView(device, swapchainImageViews[i], nullptr);
 	}
-	vmaDestroyBuffer(allocator, vDroneBuffer, vDroneBufferAllocation);
+	droneMesh.free(allocator);
+	mapMesh.free(allocator);
 	for (auto i = 0; i < textures.size(); i++) {
 		vkDestroyImageView(device, textures[i].view, nullptr);
 		vkDestroySampler(device, textures[i].sampler, nullptr);
 		vmaDestroyImage(allocator, textures[i].image, textures[i].allocation);
 	}
-	vmaDestroyBuffer(allocator, vGroundBuffer, vGroundBufferAllocation);
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutTex, nullptr);
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 	vkDestroyPipelineLayout(device, opaquePipelineLayout, nullptr);

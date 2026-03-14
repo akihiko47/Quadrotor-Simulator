@@ -21,7 +21,7 @@ struct Light {
 struct ShaderData {
     float4x4 projection;
     float4x4 view;
-    float4x4 model[3];
+    float4x4 model[16];
     float4x4 invP;
     float4x4 invV;
     float4 camPos;
@@ -38,6 +38,7 @@ struct VSOutput {
     float2 uv;
     float3 worldPos;
     uint32_t instanceIndex;
+    uint32_t textureIndex;
 };
 
 const static int groundInstanceIndex = 3;
@@ -61,9 +62,8 @@ VSOutput main(VSInput input, uniform PushConstants pushConstants, uint instanceI
         output.normal = input.Normal;
         output.worldPos = input.Pos.xyz;
         output.pos = mul(shaderData.projection, mul(shaderData.view, float4(output.worldPos, 1.0)));
-        output.instanceIndex = instanceIndex;
     } else {
-        float4x4 modelMat = shaderData.model[instanceIndex];
+        float4x4 modelMat = shaderData.model[pushConstants.modelMatrixIndex];
         output.normal = mul((float3x3)modelMat, input.Normal);
         output.worldPos = mul(modelMat, float4(input.Pos.xyz, 1.0)).xyz;
         output.pos = mul(shaderData.projection, mul(shaderData.view, float4(output.worldPos, 1.0)));
@@ -71,6 +71,7 @@ VSOutput main(VSInput input, uniform PushConstants pushConstants, uint instanceI
 
     output.uv = input.UV;
     output.instanceIndex = instanceIndex;
+    output.textureIndex = pushConstants.textureIndex;
 
     return output;
 }
@@ -90,7 +91,7 @@ float4 main(VSOutput i) {
     // Sample from texture
     float3 albedo = float3(0);
     if (i.instanceIndex == groundInstanceIndex) {
-        float cellSize = 1.0;
+        float cellSize = 3.0;
         float3 color1 = float3(0.4, 0.4, 0.4);
         float3 color2 = float3(0.75, 0.75, 0.75);
 
@@ -102,7 +103,7 @@ float4 main(VSOutput i) {
 
         albedo += lerp(color1, color2, parity);
     } else {
-        albedo += textures[NonUniformResourceIndex(i.instanceIndex)].Sample(i.uv).rgb;
+        albedo += textures[NonUniformResourceIndex(i.textureIndex)].Sample(i.uv).rgb;
     }
 
     // Lights
@@ -115,7 +116,7 @@ float4 main(VSOutput i) {
     color += sd.ambientCol.rgb;
 
     // Fog
-    float fogAmount = 1.0 - exp(-length(sd.camPos.xyz - i.worldPos) * 0.04);
+    float fogAmount = 1.0 - exp(-length(sd.camPos.xyz - i.worldPos) * sd.fog.w);
     float sunAmount = max(dot(-V, L), 0.0);
     float3 fogColor = lerp(sd.fog.rgb,  // blue
                            float3(1.0, 0.9, 0.7),  // yellow
