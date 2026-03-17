@@ -31,6 +31,7 @@
 #include "integrators.hpp"
 #include "rates.hpp"
 #include "pid.hpp"
+#include "mixer.hpp"
 
 // Model part
 RungeKutta4 integrator;
@@ -70,17 +71,6 @@ std::array<VkCommandBuffer, maxFramesInFlight> commandBuffers;
 std::array<VkFence, maxFramesInFlight> fences;
 std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
-
-void mixer(float thrust, float pidRoll, float pidPitch, float pidYaw, Quadrotor& model) {
-	float base = std::clamp(thrust * model.getMaxRotorAngVel(), model.getMinRotorAngVel(), model.getMaxRotorAngVel());
-
-	model.setMotorAngVel(
-		base + pidPitch + pidYaw,
-		base - pidRoll - pidYaw,
-		base - pidPitch + pidYaw,
-		base + pidRoll - pidYaw
-	);
-}
 
 struct Light {
 	glm::vec4 position;
@@ -1128,6 +1118,7 @@ int main(int argc, char* argv[]) {
 			ImGuiWindowFlags_NoCollapse
 		);
 
+		ImGui::Text(("Velocity: " + std::to_string(static_cast<int>(glm::length(model.getVel()) * 3.6f)) + " km/h").c_str());
 		ImGui::Text("Gamepad: %s", gamepad ? "Connected" : "Disconnected");
 		ImGui::SliderFloat("Thrust", &inputSignal.thrust, 0.0f, 1.0f, "%.3f");
 		ImGui::SliderFloat("Roll", &inputSignal.roll, -1.0f, 1.0f, "%.3f");
@@ -1218,9 +1209,9 @@ int main(int argc, char* argv[]) {
 		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.0f, 0.01f));
 
 		// Update shader data
-		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos()) * model.getRotatationMatrix();
+		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos()) * model.getRotatationMatrix() * glm::scale(glm::mat4(1), glm::vec3(0.1f, 0.1f, 0.1f));
 		shaderData.view = glm::lookAt(camPos, model.getPos(), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
-		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.1f, 1024.0f);
+		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.01f, 1024.0f);
 		shaderData.projection[1][1] *= -1;
 		
 		shaderData.invV = glm::inverse(shaderData.view);

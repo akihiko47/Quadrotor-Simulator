@@ -37,8 +37,8 @@ private:
     float m_w2 = 0.0f;
     float m_w3 = 0.0f;
     float m_w4 = 0.0f;
-    float m_minRotorAngVel = 500.0f;  // В углах
-    float m_maxRotorAngVel = 5000.0f; // В углах
+    float m_minRotorAngVel = 300.0f;  // В углах
+    float m_maxRotorAngVel = 3000.0f; // В углах
 
     // Тензор инерции
     float m_Ix, m_Iy, m_Iz;
@@ -48,7 +48,7 @@ public:
         // Инициализируем состояние: 4 вектора по 3 компоненты
         // [0, 1, 2] - позиция (x, y, z)
         // [3, 4, 5, 6] - кватернион вращения (w, x, y, z)
-        // [7, 8, 9] - линейная скорость в связанной СК (u, v, w)
+        // [7, 8, 9] - линейная скорость в мировой СК (u, v, w)
         // [10, 11, 12] - угловая скорость (p, q, r)
         m_state.resize(13, 0.0f);
         m_state[3] = 1.0f;  // unit quaternion
@@ -81,6 +81,10 @@ public:
         return glm::vec3(m_state[10], m_state[11], m_state[12]);
     }
 
+    glm::vec3 getVel() {
+        return glm::vec3(m_state[7], m_state[8], m_state[9]);
+    }
+
     float getMinRotorAngVel() {
         return m_minRotorAngVel;
     }
@@ -107,6 +111,9 @@ public:
         float F3 = k * m_w3 * m_w3;
         float F4 = k * m_w4 * m_w4;
         float F_total = F1 + F2 + F3 + F4;
+
+        // Сила сопротивления воздуха
+        glm::vec3 F_drag = -0.5f * 1.2f * 0.03f * currVel * glm::length(currVel);
 
         // Сила в связанной СК
         glm::vec3 F_bs(0.0f, F_total, 0.0f);
@@ -135,9 +142,9 @@ public:
 
         // Производная линейной скорости
         glm::vec3 velDot;
-        velDot.x = m_Fws.x / m;
-        velDot.y = (m_Fws.y - g * m) / m;
-        velDot.z = m_Fws.z / m;
+        velDot.x = (m_Fws.x + F_drag.x) / m;
+        velDot.y = (m_Fws.y + F_drag.y - g * m) / m;
+        velDot.z = (m_Fws.z + F_drag.z) / m;
 
         // Производная угловой скорости
         glm::vec3 angVelDot;

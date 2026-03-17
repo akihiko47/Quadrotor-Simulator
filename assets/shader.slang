@@ -91,7 +91,7 @@ float4 main(VSOutput i) {
     // Sample from texture
     float3 albedo = float3(0);
     if (i.instanceIndex == groundInstanceIndex) {
-        float cellSize = 3.0;
+        float cellSize = 1.0;
         float3 color1 = float3(0.4, 0.4, 0.4);
         float3 color2 = float3(0.75, 0.75, 0.75);
 
