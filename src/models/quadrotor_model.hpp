@@ -43,6 +43,9 @@ private:
     // Тензор инерции
     float m_Ix, m_Iy, m_Iz;
 
+    // Ускорение
+    glm::vec3 m_accel = glm::vec3(0);
+
 public:
     Quadrotor() {
         // Инициализируем состояние: 4 вектора по 3 компоненты
@@ -85,6 +88,10 @@ public:
         return glm::vec3(m_state[7], m_state[8], m_state[9]);
     }
 
+    glm::vec3 getAccel() {
+        return m_accel;
+    }
+
     float getMinRotorAngVel() {
         return m_minRotorAngVel;
     }
@@ -97,8 +104,12 @@ public:
         return glm::mat4_cast(glm::quat(m_state[3], m_state[4], m_state[5], m_state[6]));
     }
 
+    glm::quat getQuat() {
+        return glm::quat(m_state[3], m_state[4], m_state[5], m_state[6]);
+    }
+
     // Реализация чисто виртуального метода evalF
-    std::vector<float> evalF(const std::vector<float>& state) const override {
+    std::vector<float> evalF(const std::vector<float>& state) override {
         // Текущее состояние
         const glm::vec3 currPos = glm::vec3(state[0], state[1], state[2]);        // позиция
         const glm::quat currQuat = glm::quat(state[3], state[4], state[5], state[6]);  // кватернион
@@ -153,6 +164,8 @@ public:
         angVelDot.z = Mz_roll_theta / m_Iz;
 
         // Формируем результат
+        m_accel = glm::vec3(velDot);
+
         std::vector<float> result;
         result.reserve(13);
         result.push_back(posDot.x);

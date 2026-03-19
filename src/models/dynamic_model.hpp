@@ -15,7 +15,7 @@ public:
     DynamicModel(DynamicModel&&) = default;
     DynamicModel& operator=(DynamicModel&&) = default;
 
-    virtual std::vector<float> evalF(const std::vector<float>& state) const = 0;
+    virtual std::vector<float> evalF(const std::vector<float>& state) = 0;
 
     const std::vector<float>& getState() const noexcept {
         return m_state;

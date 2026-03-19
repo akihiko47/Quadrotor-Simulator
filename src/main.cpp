@@ -1,4 +1,7 @@
-﻿#define IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
+﻿#define WIN32_LEAN_AND_MEAN
+#include "udp_socket.hpp"
+
+#define IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING
 #include "imgui.h"
 #include "implot.h"
 #include "imgui_impl_sdl3.h"
@@ -229,6 +232,14 @@ struct MeshData {
 };
 
 int main(int argc, char* argv[]) {
+
+	#ifdef _WIN32
+		WSADATA wsa;
+		WSAStartup(MAKEWORD(2, 2), &wsa);
+	#endif
+
+	UDPSocket ardupilotSocket{9002};
+	std::cout << "Listening on port 9002 for incoming messages" << "\n";
 
 	chk(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD));
 	chk(SDL_Vulkan_LoadLibrary(NULL));
@@ -1508,18 +1519,67 @@ int main(int argc, char* argv[]) {
 			}
 		}
 
+		// Messages from arducopter
+		std::optional<UDPSocket::ReceivedMessage> msg = ardupilotSocket.receive();
+		if (msg) {
+			const uint8_t* bytes = reinterpret_cast<const uint8_t*>(msg->data.data());
+
+			uint16_t magic = *reinterpret_cast<const uint16_t*>(bytes);
+			uint16_t frame_rate = *reinterpret_cast<const uint16_t*>(bytes + 2);
+			uint32_t frame_count = *reinterpret_cast<const uint32_t*>(bytes + 4);
+			const uint16_t* pwm = reinterpret_cast<const uint16_t*>(bytes + 8);
+
+			if (magic == 18458) {
+				std::cout << "Received SITL output:\n";
+				std::cout << "  frame_rate: " << frame_rate << "\n";
+				std::cout << "  frame_count: " << frame_count << "\n";
+				std::cout << "  PWM channels: ";
+				for (int i = 0; i < 16; ++i) {
+					std::cout << pwm[i] << " ";
+				}
+				std::cout << "\n";
+
+				std::string json = "{\"timestamp\":" + std::to_string(t) + "," +
+					"\"imu\":{\"gyro\":[" +
+					std::to_string(model.getAngVel().x) + "," +
+					std::to_string(model.getAngVel().y) + "," +
+					std::to_string(model.getAngVel().z) + "]," +
+					"\"accel_body\":[" +
+					std::to_string(model.getAccel().x) + "," +
+					std::to_string(model.getAccel().y) + "," +
+					std::to_string(model.getAccel().z) + "]}," +
+					"\"position\":[" +
+					std::to_string(model.getPos().x) + "," +
+					std::to_string(model.getPos().x) + "," +
+					std::to_string(model.getPos().x) + "]," +
+					"\"quaternion\":[" +
+					std::to_string(model.getQuat().w) + "," +
+					std::to_string(model.getQuat().x) + "," +
+					std::to_string(model.getQuat().y) + "," +
+					std::to_string(model.getQuat().z) + "]," +
+					"\"velocity\":[" +
+					std::to_string(model.getVel().x) + "," +
+					std::to_string(model.getVel().y) + "," +
+					std::to_string(model.getVel().z) + "]}\n";
+
+				ardupilotSocket.sendTo(json, msg->senderIp, msg->senderPort);
+			} else {
+				std::cout << "Unknown magic: " << magic << "\n";
+			}
+		}
+
 		// Model integration
-		float currentRoll = -glm::degrees(model.getAngVel().z);
-		float currentPitch = glm::degrees(model.getAngVel().x);
-		float currentYaw = -glm::degrees(model.getAngVel().y);
+		float currentAngVelRoll = -glm::degrees(model.getAngVel().z);
+		float currentAngVelPitch = glm::degrees(model.getAngVel().x);
+		float currentAngVelYaw = -glm::degrees(model.getAngVel().y);
 
-		float targetRoll = Rates::evalRate(inputSignal.roll);
-		float targetPitch = Rates::evalRate(inputSignal.pitch);
-		float targetYaw = Rates::evalRate(inputSignal.yaw);
+		float targetAngVelRoll = Rates::evalRate(inputSignal.roll);
+		float targetAngVelPitch = Rates::evalRate(inputSignal.pitch);
+		float targetAngVelYaw = Rates::evalRate(inputSignal.yaw);
 
-		float rollCorrection = rollPID.compute(currentRoll, targetRoll, elapsedTime);
-		float pitchCorrection = pitchPID.compute(currentPitch, targetPitch, elapsedTime);
-		float yawCorrection = yawPID.compute(currentYaw, targetYaw, elapsedTime);
+		float rollCorrection = rollPID.compute(currentAngVelRoll, targetAngVelRoll, elapsedTime);
+		float pitchCorrection = pitchPID.compute(currentAngVelPitch, targetAngVelPitch, elapsedTime);
+		float yawCorrection = yawPID.compute(currentAngVelYaw, targetAngVelYaw, elapsedTime);
 
 		mixer(inputSignal.thrust, rollCorrection, pitchCorrection, yawCorrection, model);
 
@@ -1640,4 +1700,8 @@ int main(int argc, char* argv[]) {
 	SDL_Quit();
 	vkDestroyDevice(device, nullptr);
 	vkDestroyInstance(instance, nullptr);
+
+	#ifdef _WIN32
+		WSACleanup();
+	#endif
 }

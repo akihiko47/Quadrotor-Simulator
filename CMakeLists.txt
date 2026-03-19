@@ -22,6 +22,7 @@ include_directories(src)
 include_directories(src/models)
 include_directories(src/integrators)
 include_directories(src/control_system)
+include_directories(src/networking)
 
 find_package (Vulkan REQUIRED)
 
@@ -34,6 +35,9 @@ if (NOT WIN32)
         SYSTEM)
     FetchContent_MakeAvailable(GLM)
 endif()
+
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+FetchContent_MakeAvailable(json)
 
 set(KTX_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/ktx)
 set(KTX_SOURCES
@@ -113,9 +117,14 @@ set(SHADER_SOURCES
     assets/shader-skybox.slang
 )
 
+set(NETWORKING_SOURCES
+    src/networking/udp_socket.hpp
+)
+
 set(SOURCE_FILES
     src/main.cpp
     ${SHADER_SOURCES}
+    ${NETWORKING_SOURCES}
     ${MODEL_SOURCES}
     ${INTEGRATOR_SOURCES}
     ${CONTROL_SYSTEM_SOURCES}
@@ -130,6 +139,7 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT $
 
 # VS folders organization
 source_group("Header Files\\models" FILES ${MODEL_SOURCES})
+source_group("Header Files\\networking" FILES ${NETWORKING_SOURCES})
 source_group("Header Files\\integrators" FILES ${INTEGRATOR_SOURCES})
 source_group("Header Files\\control system" FILES ${CONTROL_SYSTEM_SOURCES})
 source_group("Source Files" FILES src/main.cpp)
@@ -143,6 +153,7 @@ endif()
 set_target_properties(${NAME} PROPERTIES DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(${NAME} PRIVATE cxx_std_20)
 target_link_libraries(${NAME} PRIVATE ${SDL_LIBRARY} ktx ${Slang_LIBRARY})
+target_link_libraries(${NAME} PRIVATE nlohmann_json::nlohmann_json)
 if (NOT WIN32)
     target_link_libraries(${NAME} PRIVATE glm::glm-header-only)
 endif()
