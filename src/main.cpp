@@ -1221,12 +1221,13 @@ int main(int argc, char* argv[]) {
 		chkSwapchain(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex));
 
 		// Update camera position 
-		//camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.0f, 0.01f));
-		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.2f, 0.21f));
+		camPos = model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.03f, 0.0f));
+		//camPos = model.getPos() + glm::vec3(0.0f, 0.2f, 0.3f);
 
 		// Update shader data
 		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos()) * model.getRotatationMatrix() * glm::scale(glm::mat4(1), glm::vec3(0.1f, 0.1f, 0.1f));
-		shaderData.view = glm::lookAt(camPos, model.getPos(), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
+		shaderData.view = glm::lookAt(camPos, model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.03f, -1.0f)), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
+		//shaderData.view = glm::lookAt(camPos, model.getPos(), glm::vec3(0.0f, 1.0f, 0.0f));
 		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.01f, 1024.0f);
 		shaderData.projection[1][1] *= -1;
 		
