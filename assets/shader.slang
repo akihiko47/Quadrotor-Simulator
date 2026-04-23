@@ -47,7 +47,8 @@ float3 calculateDirectionalLight(Light light, float3 albedo, float3 normal, floa
     float3 L = normalize(-light.direction.xyz);
     float diffuse = max(dot(normal, L), 0.0);
     float3 H = normalize(L + viewDir);
-    float specular = pow(max(dot(normal, H), 0.0), 128.0);
+    //float specular = pow(max(dot(normal, H), 0.0), 32.0);
+    float specular = 0.0;
 
     return diffuse * albedo * light.color.rgb + specular * light.color.rgb;
 }

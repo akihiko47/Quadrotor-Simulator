@@ -85,7 +85,7 @@ struct ShaderData {
 	glm::mat4 invP;
 	glm::mat4 invV;
 	glm::vec4 camPos;
-	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.01f};  // x, y, z - color, w - density
+	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.002f};  // x, y, z - color, w - density
 	glm::vec4 ambientCol{0.0f, 0.0f, 0.0f, 0.0f};
 	Light lights[3];
 	float time{0};
@@ -189,7 +189,7 @@ struct MeshData {
 		std::vector<tinyobj::material_t> materials;
 		chk(tinyobj::LoadObj(&attrib, &shapes, &materials, nullptr, nullptr, filePath.c_str()));
 		std::vector<Vertex> vertices{};
-		std::vector<uint16_t> indices{};
+		std::vector<uint32_t> indices{};
 
 		// Load vertex and index data
 		for (auto& index : shapes[0].mesh.indices) {
@@ -204,7 +204,7 @@ struct MeshData {
 		vertexCount = vertices.size();
 		indexCount = indices.size();
 		vBufSize = sizeof(Vertex) * vertices.size();
-		VkDeviceSize iBufSize{sizeof(uint16_t) * indices.size()};
+		VkDeviceSize iBufSize{sizeof(uint32_t) * indices.size()};
 		VkBufferCreateInfo bufferCI{
 			.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 			.size = vBufSize + iBufSize,
@@ -679,46 +679,9 @@ int main(int argc, char* argv[]) {
 	init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &imageFormat;
 	ImGui_ImplVulkan_Init(&init_info);
 
-	// Mesh data
-	//tinyobj::attrib_t monkeyAttrib;
-	//std::vector<tinyobj::shape_t> monkeyShapes;
-	//std::vector<tinyobj::material_t> monkeyMaterials;
-	//chk(tinyobj::LoadObj(&monkeyAttrib, &monkeyShapes, &monkeyMaterials, nullptr, nullptr, "assets/suzanne.obj"));
-	//const VkDeviceSize indexCount{monkeyShapes[0].mesh.indices.size()};
-	//std::vector<Vertex> monkeyVertices{};
-	//std::vector<uint16_t> monkeyIndices{};
-
-	//// Load vertex and index data
-	//for (auto& index : monkeyShapes[0].mesh.indices) {
-	//	Vertex v{
-	//		.pos = { monkeyAttrib.vertices[index.vertex_index * 3], monkeyAttrib.vertices[index.vertex_index * 3 + 1], monkeyAttrib.vertices[index.vertex_index * 3 + 2] },
-	//		.normal = { monkeyAttrib.normals[index.normal_index * 3], monkeyAttrib.normals[index.normal_index * 3 + 1], monkeyAttrib.normals[index.normal_index * 3 + 2] },
-	//		.uv = { monkeyAttrib.texcoords[index.texcoord_index * 2], 1.0 - monkeyAttrib.texcoords[index.texcoord_index * 2 + 1] }
-	//	};
-	//	vertices.push_back(v);
-	//	indices.push_back(indices.size());
-	//}
-	//VkDeviceSize vBufSize{sizeof(Vertex) * vertices.size()};
-	//VkDeviceSize iBufSize{sizeof(uint16_t) * indices.size()};
-	//VkBufferCreateInfo bufferCI{
-	//	.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, 
-	//	.size = vBufSize + iBufSize, 
-	//	.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-	//};
-	//VmaAllocationCreateInfo bufferAllocCI{
-	//	.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT, 
-	//	.usage = VMA_MEMORY_USAGE_AUTO
-	//};
-	//chk(vmaCreateBuffer(allocator, &bufferCI, &bufferAllocCI, &vBuffer, &vBufferAllocation, nullptr));
-	//void* bufferPtr{nullptr};
-	//chk(vmaMapMemory(allocator, vBufferAllocation, &bufferPtr));
-	//memcpy(bufferPtr, vertices.data(), vBufSize);
-	//memcpy(((char*)bufferPtr) + vBufSize, indices.data(), iBufSize);
-	//vmaUnmapMemory(allocator, vBufferAllocation);
-
 	// Drone buffer
 	MeshData mapMesh{};
-	mapMesh.loadModelToBuffer("assets/map.obj", allocator);
+	mapMesh.loadModelToBuffer("assets/terrain.obj", allocator);
 	MeshData droneMesh{};
 	droneMesh.loadModelToBuffer("assets/drone.obj", allocator);
 
@@ -778,7 +741,9 @@ int main(int argc, char* argv[]) {
 	std::vector<VkDescriptorImageInfo> textureDescriptors{};
 	Texture droneTexture{};
 	droneTexture.loadTextureToBuffer("assets/drone-texture.ktx", allocator, textureDescriptors);
-	std::array<Texture, 1> textures{droneTexture};
+	Texture terrainTexture{};
+	terrainTexture.loadTextureToBuffer("assets/terrain-texture.ktx", allocator, textureDescriptors);
+	std::array<Texture, 2> textures{droneTexture, terrainTexture};
 
 	// Descriptor (indexing)
 	VkDescriptorBindingFlags descVariableFlag{
@@ -1087,7 +1052,7 @@ int main(int argc, char* argv[]) {
 	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyboxPipelineCI, nullptr, &skyboxPipeline));
 
 	// Populate model matrices
-	shaderData.model[0] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+	shaderData.model[0] = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -210.0f, 0.0f)), glm::vec3(1000, 1000, 1000));
 	shaderData.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 3.0f, 0.0f));
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(ShaderData));
@@ -1333,21 +1298,23 @@ int main(int argc, char* argv[]) {
 		PushConstants pc{
 			.shaderDataAddress = shaderDataBuffers[frameIndex].deviceAddress,
 			.modelMatrixIndex = 0,
-			.textureIndex = 0,
+			.textureIndex = 1,
 		};
 		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
 
 		// Ground
 		VkDeviceSize vOffset{0};
 		vkCmdBindVertexBuffers(cb, 0, 1, &mapMesh.vBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, mapMesh.vBuffer, mapMesh.vBufSize, VK_INDEX_TYPE_UINT16);
-		vkCmdDrawIndexed(cb, mapMesh.indexCount, 1, 0, 0, 3);
+		vkCmdBindIndexBuffer(cb, mapMesh.vBuffer, mapMesh.vBufSize, VK_INDEX_TYPE_UINT32);
+		vkCmdDraw(cb, mapMesh.vertexCount, 1, 0, 0);
+		// vkCmdDrawIndexed(cb, mapMesh.indexCount, 1, 0, 0, 0);  // last number 3 for tiles
 
 		// Drone
+		pc.textureIndex = 0;
 		pc.modelMatrixIndex = 1;
 		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdBindVertexBuffers(cb, 0, 1, &droneMesh.vBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, droneMesh.vBuffer, droneMesh.vBufSize, VK_INDEX_TYPE_UINT16);
+		vkCmdBindIndexBuffer(cb, droneMesh.vBuffer, droneMesh.vBufSize, VK_INDEX_TYPE_UINT32);
 		vkCmdDraw(cb, droneMesh.vertexCount, 1, 0, 0);
 
 		// Skybox
