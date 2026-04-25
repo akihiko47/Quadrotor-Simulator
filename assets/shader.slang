@@ -124,5 +124,5 @@ float4 main(VSOutput i) {
                            pow(sunAmount, 8.0));
     color = lerp(color, fogColor, fogAmount);
 
-    return float4(color, 1.0);
+    return float4(pow(color, 1.4), 1.0);
 }

@@ -85,7 +85,7 @@ struct ShaderData {
 	glm::mat4 invP;
 	glm::mat4 invV;
 	glm::vec4 camPos;
-	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.002f};  // x, y, z - color, w - density
+	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.001f};  // x, y, z - color, w - density
 	glm::vec4 ambientCol{0.0f, 0.0f, 0.0f, 0.0f};
 	Light lights[3];
 	float time{0};
