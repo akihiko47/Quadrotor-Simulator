@@ -155,7 +155,7 @@ target_compile_features(${NAME} PRIVATE cxx_std_20)
 target_link_libraries(${NAME} PRIVATE ${SDL_LIBRARY} ktx ${Slang_LIBRARY})
 target_link_libraries(${NAME} PRIVATE nlohmann_json::nlohmann_json)
 if (NOT WIN32)
-    target_link_libraries(${NAME} PRIVATE glm::glm-header-only)
+    target_include_directories(${NAME} PRIVATE ${glm_SOURCE_DIR})
 endif()
 
 set_target_properties(${NAME} PROPERTIES
