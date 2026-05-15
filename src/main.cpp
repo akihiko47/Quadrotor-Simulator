@@ -95,6 +95,7 @@ struct PushConstants {
 	VkDeviceAddress shaderDataAddress{};  // address to ShaderData
 	uint32_t modelMatrixIndex{0};
 	uint32_t textureIndex{0};
+	uint32_t isLightBaked;
 } pushConstants{};
 
 struct ShaderDataBuffer {  // buffers that store ShaderData structs
@@ -681,7 +682,7 @@ int main(int argc, char* argv[]) {
 
 	// Drone buffer
 	MeshData mapMesh{};
-	mapMesh.loadModelToBuffer("assets/terrain.obj", allocator);
+	mapMesh.loadModelToBuffer("assets/factory.obj", allocator);
 	MeshData droneMesh{};
 	droneMesh.loadModelToBuffer("assets/drone.obj", allocator);
 
@@ -742,7 +743,7 @@ int main(int argc, char* argv[]) {
 	Texture droneTexture{};
 	droneTexture.loadTextureToBuffer("assets/drone-texture.ktx", allocator, textureDescriptors);
 	Texture terrainTexture{};
-	terrainTexture.loadTextureToBuffer("assets/terrain-texture.ktx", allocator, textureDescriptors);
+	terrainTexture.loadTextureToBuffer("assets/factory-texture.ktx", allocator, textureDescriptors);
 	std::array<Texture, 2> textures{droneTexture, terrainTexture};
 
 	// Descriptor (indexing)
@@ -1052,7 +1053,7 @@ int main(int argc, char* argv[]) {
 	chk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &skyboxPipelineCI, nullptr, &skyboxPipeline));
 
 	// Populate model matrices
-	shaderData.model[0] = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -210.0f, 0.0f)), glm::vec3(1000, 1000, 1000));
+	shaderData.model[0] = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -40.0f, 0.0f)), glm::vec3(1, 1, 1));
 	shaderData.model[1] = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 3.0f, 0.0f));
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(ShaderData));
@@ -1061,20 +1062,19 @@ int main(int argc, char* argv[]) {
 	// Create lights
 	shaderData.lights[0] = {  // Sun
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
-		.direction = glm::vec4(1.0f, -0.5f, -1.0f, 0.0f),
+		.direction = glm::vec4(-1.0f, -0.5f, 1.0f, 0.0f),
 		.color = glm::vec4(1.64f, 1.27f, 0.99f, 1.0f),
 	};
 	shaderData.lights[1] = {  // Sky
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
 		.direction = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
-		.color = glm::vec4(0.16f, 0.2f, 0.28f, 1.0f),
+		.color = glm::vec4(0.32f, 0.4f, 0.56f, 1.0f),
 	};
 	shaderData.lights[2] = {  // Sun bounce
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
 		.direction = shaderData.lights[0].direction * glm::vec4(-1.0f, 0.0f, -1.0f, 0.0f),
 		.color = glm::vec4(0.4f, 0.28f, 0.2f, 1.0f),
 	};
-	
 
 	// Render loop
 	uint64_t lastTime{SDL_GetTicks()};
@@ -1299,6 +1299,7 @@ int main(int argc, char* argv[]) {
 			.shaderDataAddress = shaderDataBuffers[frameIndex].deviceAddress,
 			.modelMatrixIndex = 0,
 			.textureIndex = 1,
+			.isLightBaked = true
 		};
 		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
 
@@ -1312,6 +1313,7 @@ int main(int argc, char* argv[]) {
 		// Drone
 		pc.textureIndex = 0;
 		pc.modelMatrixIndex = 1;
+		pc.isLightBaked = false;
 		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
 		vkCmdBindVertexBuffers(cb, 0, 1, &droneMesh.vBuffer, &vOffset);
 		vkCmdBindIndexBuffer(cb, droneMesh.vBuffer, droneMesh.vBufSize, VK_INDEX_TYPE_UINT32);

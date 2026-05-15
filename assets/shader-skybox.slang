@@ -2,6 +2,7 @@ struct PushConstants {
     ShaderData* shaderData;
     uint modelMatrixIndex;
     uint textureIndex;
+    uint isLightBaked;
 };
 
 struct Light {

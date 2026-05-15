@@ -10,6 +10,7 @@ struct PushConstants {
     ShaderData* shaderData;
     uint modelMatrixIndex;
     uint textureIndex;
+    uint isLightBaked;
 };
 
 struct Light {
@@ -39,6 +40,7 @@ struct VSOutput {
     float3 worldPos;
     uint32_t instanceIndex;
     uint32_t textureIndex;
+    bool isLightBaked;
 };
 
 const static int groundInstanceIndex = 3;
@@ -73,6 +75,7 @@ VSOutput main(VSInput input, uniform PushConstants pushConstants, uint instanceI
     output.uv = input.UV;
     output.instanceIndex = instanceIndex;
     output.textureIndex = pushConstants.textureIndex;
+    output.isLightBaked = pushConstants.isLightBaked;
 
     return output;
 }
@@ -109,9 +112,13 @@ float4 main(VSOutput i) {
 
     // Lights
     float3 color = float3(0);
-    color += calculateDirectionalLight(sd.lights[0], albedo, N, V);
-    color += calculateDirectionalLight(sd.lights[1], albedo, N, V);
-    color += calculateDirectionalLight(sd.lights[2], albedo, N, V);
+    if (i.isLightBaked) {
+        color += albedo;
+    } else {
+        color += calculateDirectionalLight(sd.lights[0], albedo, N, V);
+        color += calculateDirectionalLight(sd.lights[1], albedo, N, V);
+        color += calculateDirectionalLight(sd.lights[2], albedo, N, V);
+    }
 
     // Ambient
     color += sd.ambientCol.rgb;
