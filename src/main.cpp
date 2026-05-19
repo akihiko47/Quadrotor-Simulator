@@ -372,7 +372,8 @@ struct Texture {
 };
 
 int main(int argc, char* argv[]) { 
-	chk(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD));
+	SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+	chk(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK));
 	chk(SDL_Vulkan_LoadLibrary(NULL));
 	volkInitialize();
 
@@ -1508,7 +1509,7 @@ int main(int argc, char* argv[]) {
 		float yawCorrection = yawPID.compute(currentAngVelYaw, targetAngVelYaw, elapsedTime);
 
 		mixer(inputSignal.thrust, rollCorrection, pitchCorrection, yawCorrection, model);
-
+		
 		integrator.takeStep(model, elapsedTime);
 
 		// Swapchain update (if window resized)
