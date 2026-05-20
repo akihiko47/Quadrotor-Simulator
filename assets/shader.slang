@@ -7,10 +7,12 @@ struct VSInput {
 Sampler2D textures[];
 
 struct PushConstants {
+    float4 objectColor;
     ShaderData* shaderData;
     uint modelMatrixIndex;
     uint textureIndex;
-    uint isLightBaked;
+    uint useLight;
+    uint useTex;
 };
 
 struct Light {
@@ -40,7 +42,9 @@ struct VSOutput {
     float3 worldPos;
     uint32_t instanceIndex;
     uint32_t textureIndex;
-    bool isLightBaked;
+    bool useLight;
+    bool useTex;
+    float4 objectColor;
 };
 
 const static int groundInstanceIndex = 3;
@@ -75,7 +79,9 @@ VSOutput main(VSInput input, uniform PushConstants pushConstants, uint instanceI
     output.uv = input.UV;
     output.instanceIndex = instanceIndex;
     output.textureIndex = pushConstants.textureIndex;
-    output.isLightBaked = pushConstants.isLightBaked;
+    output.useLight = pushConstants.useLight;
+    output.useTex = pushConstants.useTex;
+    output.objectColor = pushConstants.objectColor;
 
     return output;
 }
@@ -107,17 +113,23 @@ float4 main(VSOutput i) {
 
         albedo += lerp(color1, color2, parity);
     } else {
-        albedo += textures[NonUniformResourceIndex(i.textureIndex)].Sample(i.uv).rgb;
+
+        if (i.useTex) {
+            albedo += textures[NonUniformResourceIndex(i.textureIndex)].Sample(i.uv).rgb;
+        } else {
+            albedo += i.objectColor.rgb;
+        }
+
     }
 
     // Lights
     float3 color = float3(0);
-    if (i.isLightBaked) {
-        color += albedo;
-    } else {
+    if (i.useLight) {
         color += calculateDirectionalLight(sd.lights[0], albedo, N, V);
         color += calculateDirectionalLight(sd.lights[1], albedo, N, V);
         color += calculateDirectionalLight(sd.lights[2], albedo, N, V);
+    } else {
+        color += albedo;  
     }
 
     // Ambient

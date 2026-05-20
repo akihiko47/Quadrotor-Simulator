@@ -1,8 +1,10 @@
 struct PushConstants {
+    float4 objectColor;
     ShaderData* shaderData;
     uint modelMatrixIndex;
     uint textureIndex;
     uint isLightBaked;
+    uint useTex;
 };
 
 struct Light {

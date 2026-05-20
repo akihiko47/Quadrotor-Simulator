@@ -72,6 +72,7 @@ std::array<VkFence, maxFramesInFlight> fences;
 std::array<VkSemaphore, maxFramesInFlight> presentSemaphores;
 std::vector<VkSemaphore> renderSemaphores;
 
+
 struct Light {
 	glm::vec4 position;
 	glm::vec4 direction;
@@ -92,10 +93,12 @@ struct ShaderData {
 } shaderData{};
 
 struct PushConstants {
+	glm::vec4 objectColor;
 	VkDeviceAddress shaderDataAddress{};  // address to ShaderData
 	uint32_t modelMatrixIndex{0};
 	uint32_t textureIndex{0};
-	uint32_t isLightBaked;
+	uint32_t useLight;
+	uint32_t useTex;   // use texture or color
 } pushConstants{};
 
 struct ShaderDataBuffer {  // buffers that store ShaderData structs
@@ -370,6 +373,55 @@ struct Texture {
 		vmaDestroyImage(allocator, image, allocation);
 	}
 };
+
+
+class RenderObject final {
+public:
+	RenderObject(MeshData& mesh)
+		: mesh(mesh),
+		textureIndex(0),
+		modelMatrixIndex(0),
+		useTex(false),
+		useLight(true),
+		color(1.0f) {
+	}
+
+	RenderObject(const RenderObject&) = delete;
+	RenderObject& operator=(const RenderObject&) = delete;
+
+	void Render(VkCommandBuffer cb, VkDeviceAddress shaderDataAddress) {
+		pc.useTex = useTex;
+		pc.objectColor = color;
+		pc.modelMatrixIndex = modelMatrixIndex;
+		pc.textureIndex = textureIndex;
+		pc.useLight = useLight;
+		pc.shaderDataAddress = shaderDataAddress;
+
+		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT,
+						   0, sizeof(PushConstants), &pc);
+
+		VkDeviceSize offset = 0;
+		vkCmdBindVertexBuffers(cb, 0, 1, &mesh.vBuffer, &offset);
+		vkCmdBindIndexBuffer(cb, mesh.vBuffer, mesh.vBufSize, VK_INDEX_TYPE_UINT32);
+		vkCmdDraw(cb, mesh.vertexCount, 1, 0, 0);
+	}
+
+	void setTextureIndex(int idx) { textureIndex = idx; }
+	void setModelMatrixIndex(int idx) { modelMatrixIndex = idx; }
+	void setUseTex(bool val) { useTex = val; }
+	void setUseLight(bool val) { useLight = val; }
+	void setColor(const glm::vec4& col) { color = col; }
+
+private:
+	MeshData& mesh;
+	int textureIndex;
+	int modelMatrixIndex;
+	bool useTex;
+	bool useLight;
+	glm::vec4 color;
+	PushConstants pc{};
+};
+
 
 int main(int argc, char* argv[]) { 
 	SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
@@ -681,12 +733,6 @@ int main(int argc, char* argv[]) {
 	init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &imageFormat;
 	ImGui_ImplVulkan_Init(&init_info);
 
-	// Drone buffer
-	MeshData mapMesh{};
-	mapMesh.loadModelToBuffer("assets/factory.obj", allocator);
-	MeshData droneMesh{};
-	droneMesh.loadModelToBuffer("assets/drone.obj", allocator);
-
 	// Shader data buffers
 	for (auto i = 0; i < maxFramesInFlight; i++) {
 		VkBufferCreateInfo uBufferCI{
@@ -746,6 +792,28 @@ int main(int argc, char* argv[]) {
 	Texture terrainTexture{};
 	terrainTexture.loadTextureToBuffer("assets/factory-texture.ktx", allocator, textureDescriptors);
 	std::array<Texture, 2> textures{droneTexture, terrainTexture};
+
+	// Drone buffer
+	MeshData planeMesh{};
+	planeMesh.loadModelToBuffer("assets/plane.obj", allocator);
+	MeshData mapMesh{};
+	mapMesh.loadModelToBuffer("assets/city.obj", allocator);
+	MeshData droneMesh{};
+	droneMesh.loadModelToBuffer("assets/drone.obj", allocator);
+
+	// Render objects
+	RenderObject planeObject(planeMesh);
+
+	RenderObject mapObject(mapMesh);
+	mapObject.setColor(glm::vec4(0.17f, 0.22f, 0.28f, 0.0f));
+	/*mapObject.setTextureIndex(1);
+	mapObject.setUseTex(true);
+	mapObject.setUseLight(false);*/
+
+	RenderObject droneObject(droneMesh);
+	droneObject.setUseTex(true);
+	droneObject.setTextureIndex(0);
+	droneObject.setModelMatrixIndex(1);
 
 	// Descriptor (indexing)
 	VkDescriptorBindingFlags descVariableFlag{
@@ -1194,7 +1262,7 @@ int main(int argc, char* argv[]) {
 		shaderData.model[1] = glm::translate(glm::mat4(1.0f), model.getPos()) * model.getRotatationMatrix() * glm::scale(glm::mat4(1), glm::vec3(0.1f, 0.1f, 0.1f));
 		shaderData.view = glm::lookAt(camPos, model.getPos() + model.bodyToWorld(glm::vec3(0.0f, 0.03f, -1.0f)), model.bodyToWorld(glm::vec3(0.0f, 1.0f, 0.0f)));
 		//shaderData.view = glm::lookAt(camPos, model.getPos(), glm::vec3(0.0f, 1.0f, 0.0f));
-		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.01f, 1024.0f);
+		shaderData.projection = glm::perspective(glm::radians(80.0f), (float)windowSize.x / (float)windowSize.y, 0.01f, 100000.0f);
 		shaderData.projection[1][1] *= -1;
 		
 		shaderData.invV = glm::inverse(shaderData.view);
@@ -1296,29 +1364,16 @@ int main(int argc, char* argv[]) {
 		// Opague
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipeline);
 		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaquePipelineLayout, 0, 1, &descriptorSetTex, 0, nullptr);
-		PushConstants pc{
-			.shaderDataAddress = shaderDataBuffers[frameIndex].deviceAddress,
-			.modelMatrixIndex = 0,
-			.textureIndex = 1,
-			.isLightBaked = true
-		};
-		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
-
-		// Ground
 		VkDeviceSize vOffset{0};
-		vkCmdBindVertexBuffers(cb, 0, 1, &mapMesh.vBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, mapMesh.vBuffer, mapMesh.vBufSize, VK_INDEX_TYPE_UINT32);
-		vkCmdDraw(cb, mapMesh.vertexCount, 1, 0, 0);
-		// vkCmdDrawIndexed(cb, mapMesh.indexCount, 1, 0, 0, 0);  // last number 3 for tiles
+
+		// Plane
+		planeObject.Render(cb, shaderDataBuffers[frameIndex].deviceAddress);
+
+		// Map
+		mapObject.Render(cb, shaderDataBuffers[frameIndex].deviceAddress);
 
 		// Drone
-		pc.textureIndex = 0;
-		pc.modelMatrixIndex = 1;
-		pc.isLightBaked = false;
-		vkCmdPushConstants(cb, opaquePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
-		vkCmdBindVertexBuffers(cb, 0, 1, &droneMesh.vBuffer, &vOffset);
-		vkCmdBindIndexBuffer(cb, droneMesh.vBuffer, droneMesh.vBufSize, VK_INDEX_TYPE_UINT32);
-		vkCmdDraw(cb, droneMesh.vertexCount, 1, 0, 0);
+		droneObject.Render(cb, shaderDataBuffers[frameIndex].deviceAddress);
 
 		// Skybox
 		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
@@ -1641,6 +1696,7 @@ int main(int argc, char* argv[]) {
 	}
 	droneMesh.free(allocator);
 	mapMesh.free(allocator);
+	planeMesh.free(allocator);
 	for (auto i = 0; i < textures.size(); i++) {
 		textures[i].free(allocator);
 	}
