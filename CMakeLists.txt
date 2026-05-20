@@ -51,7 +51,7 @@ set(KTX_SOURCES
 add_library(ktx STATIC ${KTX_SOURCES})
 
 if (NOT WIN32)
-    target_link_libraries(ktx PUBLIC $ENV{VULKAN_SDK}/lib/libvulkan.so)
+    target_link_libraries(ktx PUBLIC Vulkan::Vulkan)
 endif()
 
 find_library(SDL_LIBRARY NAMES SDL3 HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
