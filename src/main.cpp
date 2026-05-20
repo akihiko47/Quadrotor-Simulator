@@ -1433,10 +1433,46 @@ int main(int argc, char* argv[]) {
 				if (event.key.key == SDLK_SPACE) {
 					inputSignal.thrust = 1;
 				}
+				if (event.key.key == SDLK_A) {
+					inputSignal.yaw = -0.2;
+				}
+				if (event.key.key == SDLK_D) {
+					inputSignal.yaw = 0.2;
+				}
+				if (event.key.key == SDLK_Q) {
+					inputSignal.roll = -0.2;
+				}
+				if (event.key.key == SDLK_E) {
+					inputSignal.roll = 0.2;
+				}
+				if (event.key.key == SDLK_W) {
+					inputSignal.pitch = -0.2;
+				}
+				if (event.key.key == SDLK_S) {
+					inputSignal.pitch = 0.2;
+				}
 			}
 			if (event.type == SDL_EVENT_KEY_UP) {
 				if (event.key.key == SDLK_SPACE) {
 					inputSignal.thrust = 0;
+				}
+				if (event.key.key == SDLK_A) {
+					inputSignal.yaw = 0;
+				}
+				if (event.key.key == SDLK_D) {
+					inputSignal.yaw = 0;
+				}
+				if (event.key.key == SDLK_Q) {
+					inputSignal.roll = 0;
+				}
+				if (event.key.key == SDLK_E) {
+					inputSignal.roll = 0;
+				}
+				if (event.key.key == SDLK_W) {
+					inputSignal.pitch = 0;
+				}
+				if (event.key.key == SDLK_S) {
+					inputSignal.pitch = 0;
 				}
 			}
 
