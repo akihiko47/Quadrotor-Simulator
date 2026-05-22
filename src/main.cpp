@@ -33,6 +33,8 @@
 #include "pid.hpp"
 #include "mixer.hpp"
 
+#define SUNSET 0
+
 // Model part
 RungeKutta4 integrator;
 Quadrotor model;
@@ -86,7 +88,11 @@ struct ShaderData {
 	glm::mat4 invP;
 	glm::mat4 invV;
 	glm::vec4 camPos;
+#if SUNSET
+	glm::vec4 fog{0.01, 0.02, 0.04, 0.001f};  // x, y, z - color, w - density
+#else
 	glm::vec4 fog{0.7f, 0.85f, 1.0f, 0.001f};  // x, y, z - color, w - density
+#endif
 	glm::vec4 ambientCol{0.0f, 0.0f, 0.0f, 0.0f};
 	Light lights[3];
 	float time{0};
@@ -797,7 +803,7 @@ int main(int argc, char* argv[]) {
 	MeshData planeMesh{};
 	planeMesh.loadModelToBuffer("assets/plane.obj", allocator);
 	MeshData mapMesh{};
-	mapMesh.loadModelToBuffer("assets/city.obj", allocator);
+	mapMesh.loadModelToBuffer("assets/factory.obj", allocator);
 	MeshData droneMesh{};
 	droneMesh.loadModelToBuffer("assets/drone.obj", allocator);
 
@@ -806,9 +812,9 @@ int main(int argc, char* argv[]) {
 
 	RenderObject mapObject(mapMesh);
 	mapObject.setColor(glm::vec4(0.17f, 0.22f, 0.28f, 0.0f));
-	/*mapObject.setTextureIndex(1);
+	mapObject.setTextureIndex(1);
 	mapObject.setUseTex(true);
-	mapObject.setUseLight(false);*/
+	mapObject.setUseLight(false);
 
 	RenderObject droneObject(droneMesh);
 	droneObject.setUseTex(true);
@@ -1129,6 +1135,23 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Create lights
+#if SUNSET
+	shaderData.lights[0] = {  // Sun
+		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+		.direction = glm::vec4(-1.0f, -0.4f, 1.0f, 0.0f),
+		.color = glm::vec4(0.08, 0.1, 0.2, 1.0f),
+	};
+	shaderData.lights[1] = {  // Sky
+		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+		.direction = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f),
+		.color = glm::vec4(0.01, 0.02, 0.05, 1.0f),
+	};
+	shaderData.lights[2] = {  // Sun bounce
+		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+		.direction = shaderData.lights[0].direction * glm::vec4(-1.0f, 0.0f, -1.0f, 0.0f),
+		.color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+	};
+#else
 	shaderData.lights[0] = {  // Sun
 		.position = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
 		.direction = glm::vec4(-1.0f, -0.5f, 1.0f, 0.0f),
@@ -1144,6 +1167,7 @@ int main(int argc, char* argv[]) {
 		.direction = shaderData.lights[0].direction * glm::vec4(-1.0f, 0.0f, -1.0f, 0.0f),
 		.color = glm::vec4(0.4f, 0.28f, 0.2f, 1.0f),
 	};
+#endif
 
 	// Render loop
 	uint64_t lastTime{SDL_GetTicks()};

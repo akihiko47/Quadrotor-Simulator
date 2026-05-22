@@ -1,3 +1,5 @@
+#define SUNSET 0
+
 struct VSInput {
     float3 Pos;
     float3 Normal;
@@ -138,9 +140,14 @@ float4 main(VSOutput i) {
     // Fog
     float fogAmount = 1.0 - exp(-length(sd.camPos.xyz - i.worldPos) * sd.fog.w);
     float sunAmount = max(dot(-V, L), 0.0);
-    float3 fogColor = lerp(sd.fog.rgb,  // blue
-                           float3(1.0, 0.9, 0.7),  // yellow
-                           pow(sunAmount, 8.0));
+
+    #if SUNSET
+        float3 fogColor = sd.fog.rgb;
+    #else
+        float3 fogColor = lerp(sd.fog.rgb,  // blue
+                            float3(1.0, 0.9, 0.7),  // yellow
+                            pow(sunAmount, 8.0));
+    #endif
     color = lerp(color, fogColor, fogAmount);
 
     return float4(pow(color, 1.4), 1.0);

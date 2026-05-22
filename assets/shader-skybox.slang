@@ -1,3 +1,5 @@
+#define SUNSET 0
+
 struct PushConstants {
     float4 objectColor;
     ShaderData* shaderData;
@@ -75,9 +77,13 @@ float4 main(VSOutput i) : SV_TARGET {
 
     // Fog
     float sunAmount = max(dot(rd, L), 0.0);
-    float3 fogColor = lerp(sd.fog.rgb,
-                           float3(1.0, 0.9, 0.7), // yellow
-                           pow(sunAmount, 8.0));
+    #if SUNSET
+        float3 fogColor = sd.fog.rgb;
+    #else
+        float3 fogColor = lerp(sd.fog.rgb,
+                               float3(1.0, 0.9, 0.7), // yellow
+                               pow(sunAmount, 12.0));
+    #endif
 
     // Skybox
     float skyMask = smoothstep(0.0, 0.5, rd.y);
@@ -85,8 +91,12 @@ float4 main(VSOutput i) : SV_TARGET {
     float horizonMask = 1.0 - (skyMask + groundMask);
     float sunMask = smoothstep(0.9995, 0.9996, saturate(dot(rd, L)));
 
-    float3 skyboxColor = skyMask * float3(0.53, 0.81, 0.92) + groundMask * float3(0.25, 0.28, 0.32) + horizonMask * fogColor;
-    skyboxColor = skyboxColor * (1 - sunMask) + sunMask;
+    #if SUNSET
+        float3 skyboxColor = skyMask * float3(0.0, 0.01, 0.03) + groundMask * float3(0.25, 0.28, 0.32) + horizonMask * fogColor;
+    #else
+        float3 skyboxColor = skyMask * float3(0.53, 0.81, 0.92) + groundMask * float3(0.25, 0.28, 0.32) + horizonMask * fogColor;
+        skyboxColor = skyboxColor * (1 - sunMask) + sunMask;
+    #endif
 
     return float4(skyboxColor, 1.0);
 }
