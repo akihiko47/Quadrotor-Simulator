@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
 include(FetchContent)
 set(NAME QuadrotorSimulator)
 project(${NAME})
@@ -26,14 +29,24 @@ include_directories(src/networking)
 
 find_package (Vulkan REQUIRED)
 
-if (NOT WIN32)
-    FetchContent_Declare(GLM
-        GIT_REPOSITORY https://github.com/g-truc/glm
-        GIT_TAG 1.0
-        GIT_SHALLOW ON
-        EXCLUDE_FROM_ALL
-        SYSTEM)
-    FetchContent_MakeAvailable(GLM)
+if(WIN32)
+    if(NOT TARGET glm::glm)
+        add_library(glm::glm INTERFACE IMPORTED)
+        target_include_directories(glm::glm INTERFACE "$ENV{VULKAN_SDK}/include")
+    endif()
+else()
+    find_package(glm CONFIG QUIET)
+    if(NOT glm_FOUND)
+        message(STATUS "glm not found, fetching from GitHub...")
+        FetchContent_Declare(GLM
+            GIT_REPOSITORY https://github.com/g-truc/glm
+            GIT_TAG 1.0
+            GIT_SHALLOW     TRUE
+            GIT_PROGRESS    TRUE
+            USES_TERMINAL_DOWNLOAD TRUE
+        )
+        FetchContent_MakeAvailable(GLM)
+    endif()
 endif()
 
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
@@ -70,9 +83,9 @@ else()
             SDL3
             GIT_REPOSITORY  https://github.com/libsdl-org/SDL.git
             GIT_TAG         release-3.4.8
-            GIT_SHALLOW     ON
-            EXCLUDE_FROM_ALL
-            SYSTEM
+            GIT_SHALLOW     TRUE
+            GIT_PROGRESS    TRUE
+            USES_TERMINAL_DOWNLOAD TRUE
         )
         FetchContent_MakeAvailable(SDL3)
     endif()
@@ -182,11 +195,7 @@ if (WIN32)
 endif()
 set_target_properties(${NAME} PROPERTIES DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(${NAME} PRIVATE cxx_std_20)
-target_link_libraries(${NAME} PRIVATE SDL3::SDL3 ktx ${Slang_LIBRARY})
-target_link_libraries(${NAME} PRIVATE nlohmann_json::nlohmann_json)
-if (NOT WIN32)
-    target_include_directories(${NAME} PRIVATE ${glm_SOURCE_DIR})
-endif()
+target_link_libraries(${NAME} PRIVATE glm::glm SDL3::SDL3 ktx ${Slang_LIBRARY} nlohmann_json::nlohmann_json)
 
 set_target_properties(${NAME} PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
