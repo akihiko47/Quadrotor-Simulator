@@ -10,7 +10,7 @@ else()
     message(STATUS "Found Vulkan SDK in $ENV{VULKAN_SDK}")
 endif()
 
-# SDL3, Volk, VMA, glm and Slang are taken from the SDK
+# Volk, VMA, glm and Slang are taken from the SDK
 include_directories($ENV{VULKAN_SDK}/include)
 # These are not part of the SDK
 include_directories(external/tinyobj)
@@ -54,7 +54,30 @@ if (NOT WIN32)
     target_link_libraries(ktx PUBLIC Vulkan::Vulkan)
 endif()
 
-find_library(SDL_LIBRARY NAMES SDL3 HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
+# SDL3 is taken from sdk on Windows and fetchet from git on Linux
+if(WIN32)
+    find_library(SDL3_LIB_PATH NAMES SDL3 HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
+    add_library(SDL3::SDL3 UNKNOWN IMPORTED)
+    set_target_properties(SDL3::SDL3 PROPERTIES
+        IMPORTED_LOCATION "${SDL3_LIB_PATH}"
+        INTERFACE_INCLUDE_DIRECTORIES "$ENV{VULKAN_SDK}/include"
+    )
+else()
+    find_package(SDL3 CONFIG QUIET)
+    if(NOT SDL3_FOUND)
+        message(STATUS "SDL3 not found, fetching from GitHub...")
+        FetchContent_Declare(
+            SDL3
+            GIT_REPOSITORY  https://github.com/libsdl-org/SDL.git
+            GIT_TAG         release-3.4.8
+            GIT_SHALLOW     ON
+            EXCLUDE_FROM_ALL
+            SYSTEM
+        )
+        FetchContent_MakeAvailable(SDL3)
+    endif()
+endif()
+
 find_library(Slang_LIBRARY NAMES slang slang-compiler HINTS "$ENV{VULKAN_SDK}/lib" REQUIRED)
 
 if(WIN32)
@@ -159,7 +182,7 @@ if (WIN32)
 endif()
 set_target_properties(${NAME} PROPERTIES DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(${NAME} PRIVATE cxx_std_20)
-target_link_libraries(${NAME} PRIVATE ${SDL_LIBRARY} ktx ${Slang_LIBRARY})
+target_link_libraries(${NAME} PRIVATE SDL3::SDL3 ktx ${Slang_LIBRARY})
 target_link_libraries(${NAME} PRIVATE nlohmann_json::nlohmann_json)
 if (NOT WIN32)
     target_include_directories(${NAME} PRIVATE ${glm_SOURCE_DIR})
